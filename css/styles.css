@@ -164,7 +164,14 @@ a { color: inherit; text-decoration: none; }
 
 .topbar-back { display: none; background: none; border: none; padding: 0; cursor: pointer; color: var(--texte-principal); flex-shrink: 0; }
 .topbar-back svg { width: 22px; height: 22px; display: block; }
-body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { display: inline-flex; }
+/* La flèche retour est présente sur tout le parcours ; seule la liste, qui en
+   est la racine, s'en passe. */
+body[data-screen="contact"] .topbar-back,
+body[data-screen="builder"] .topbar-back,
+body[data-screen="map"] .topbar-back,
+body[data-screen="report"] .topbar-back { display: inline-flex; }
+.topbar-back:hover { color: var(--bleu-secondaire); }
+.topbar-back:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: 3px; border-radius: var(--radius-sm); }
 
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 
@@ -409,6 +416,70 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 .tour-card-meta { font-size: 16px; color: var(--bleu-principal); margin: 0; line-height: 1; }
 .tour-card-meta strong { font-weight: 700; }
 
+/* Badge de statut du tour. Même gabarit que .draft-chip, décliné par ton. */
+.status-chip {
+  display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px;
+  border-radius: var(--radius-md); vertical-align: 2px; margin-left: 6px; letter-spacing: 0.01em;
+}
+.status-chip.draft { background: var(--neutre-surface); color: var(--texte-secondaire); }
+.status-chip.pending { background: var(--attention-bg); color: #8a5a05; }
+.status-chip.ok { background: var(--succes-bg); color: #17792a; }
+.status-chip.shared { background: var(--bleu-action-10); color: var(--bleu-action-dark); }
+
+/* Récapitulatif de la validation, en tête du tour. Les compteurs se lisent
+   d'abord, la phrase explique quoi faire ensuite. */
+.validation-panel {
+  border: 1px solid var(--bordures); border-left: 4px solid var(--bleu-secondaire);
+  border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; background: var(--lumiere-principale);
+}
+.validation-panel.confirme { border-left-color: var(--succes); background: var(--succes-bg); }
+.validation-counts { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.vcount { font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+.vcount::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.vcount.ok { color: #17792a; }
+.vcount.wait { color: #8a5a05; }
+.vcount.act { color: var(--rouge-principal); }
+.validation-help { margin: 8px 0 0; font-size: 13px; line-height: 1.45; color: var(--texte-secondaire); }
+
+/* Arbitrage d'une réponse, sous l'arrêt qu'elle concerne. */
+.stop-answer {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  padding: 10px 14px; border-radius: var(--radius-md); border-left: 4px solid;
+  font-size: 13.5px; margin: 6px 0;
+}
+.stop-answer svg { width: 16px; height: 16px; flex-shrink: 0; }
+.stop-answer .banner-text { flex: 1; min-width: 180px; }
+.stop-answer.warn { background: var(--attention-bg); border-color: var(--attention); color: #8a5a05; }
+.stop-answer.danger { background: var(--rouge-10); border-color: var(--rouge-principal); color: var(--rouge-dark); }
+.stop-answer.muted { background: var(--neutre-surface); border-color: var(--texte-secondaire); color: var(--texte-secondaire); }
+.btn-inline {
+  font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  background: var(--blanc); color: inherit; border: 1.5px solid currentColor;
+  border-radius: var(--radius-md); padding: 7px 12px; min-height: 34px;
+}
+.btn-inline:hover { background: var(--lumiere-principale); }
+.btn-inline:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: 2px; }
+.btn-inline.ghost { background: transparent; border-color: transparent; text-decoration: underline; }
+
+/* Propriété hors catalogue : la demande part par courriel, sans créer de fiche. */
+.ext-chip {
+  display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 7px;
+  border-radius: var(--radius-md); background: var(--neutre-surface); color: var(--texte-secondaire);
+  vertical-align: 1px; letter-spacing: 0.01em;
+}
+
+/* Rappel du tour à partager, en tête de l'étape 4. */
+.share-recap {
+  border: 1px solid var(--bordures); border-radius: var(--radius-lg);
+  padding: 14px 16px; margin-bottom: 18px; background: var(--lumiere-principale);
+}
+.share-recap-title { margin: 0; font-size: 15px; font-weight: 700; color: var(--bleu-principal); }
+.share-recap-meta { margin: 4px 0 0; font-size: 13.5px; color: var(--texte-secondaire); }
+
+/* Explication d'un bouton primaire fermé : un bouton grisé sans raison est un
+   cul-de-sac. */
+.footer-note { margin: -4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--texte-secondaire); }
+
 .draft-chip {
   display: inline-block;
   background: var(--bleu-action-10);
@@ -443,6 +514,7 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 
 .readonly-chip { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 14px; border: 1px solid var(--bordures); border-radius: var(--radius-lg); background: var(--blanc); font-weight: 600; color: var(--bleu-secondaire); cursor: pointer; }
 .readonly-chip svg { width: 16px; height: 16px; color: var(--texte-secondaire); }
+.readonly-chip.is-muted { color: var(--texte-secondaire); font-weight: 500; font-style: italic; background: var(--neutre-surface); }
 
 .action-row { display: flex; gap: 12px; margin: 22px 0 20px; flex-wrap: wrap; }
 .action-row .btn { flex: 1; min-width: 200px; }
@@ -478,6 +550,11 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 .stop-meta { font-size: 13px; color: var(--texte-secondaire); margin: 0; }
 .stop-meta .status-ok { color: var(--succes); font-weight: 600; }
 .stop-meta .status-pending { color: var(--attention); font-weight: 600; }
+/* Les cinq réponses possibles d'un courtier. Le ton ne repose jamais sur la
+   seule couleur : le libellé porte déjà l'information (WCAG 1.4.1). */
+.stop-meta .status-warn { color: #8a5a05; font-weight: 600; }
+.stop-meta .status-danger { color: var(--rouge-principal); font-weight: 600; }
+.stop-meta .status-muted { color: var(--texte-secondaire); font-weight: 600; }
 .stop-meta .status-visited { color: var(--succes); font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
 .stop-meta .status-visited svg { width: 12px; height: 12px; }
 

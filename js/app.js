@@ -307,11 +307,75 @@ function makeStop(address, mls, opts = {}) {
     duration: opts.duration || 30,
     locked: opts.status === 'confirmed',
     lockedStart: opts.lockedStart || null,
+    proposedStart: opts.proposedStart || null,  // créneau suggéré par le courtier inscripteur
+    external: opts.external || false,           // arrêt hors catalogue, envoyé par courriel
     visited: opts.visited || false,
   };
 }
 function makePause(duration = 30) {
   return { id: uid(), type: 'pause', duration };
+}
+
+/* ---------------- Statuts ---------------- */
+
+// Une visite ne se résume pas à « demandée / confirmée » : le courtier
+// inscripteur refuse, propose un autre créneau, ou ne répond pas. Ces trois cas
+// sont les plus fréquents en pratique et étaient jusqu'ici inexprimables, donc
+// invisibles pour le courtier acheteur qui devait les suivre de tête.
+const STOP_STATUSES = {
+  pending:   { label: 'À confirmer avec le courtier inscripteur', short: 'À confirmer', tone: 'pending', action: true },
+  confirmed: { label: 'Confirmée', short: 'Confirmée', tone: 'ok', action: false },
+  proposed:  { label: 'Autre créneau proposé', short: 'Contre-proposition', tone: 'warn', action: true },
+  refused:   { label: 'Visite refusée', short: 'Refusée', tone: 'danger', action: true },
+  noreply:   { label: 'Sans réponse du courtier', short: 'Sans réponse', tone: 'muted', action: true },
+};
+// Ordre du simulateur de démo : le cycle suit le parcours réel d'une demande.
+const STOP_STATUS_CYCLE = ['pending', 'confirmed', 'proposed', 'refused', 'noreply'];
+
+// Le tour n'a pas de champ `status` : il se déduit de ce qui est vrai (les
+// demandes sont parties, l'acheteur a reçu le tour) et de l'état des arrêts.
+// Deux champs stockés au lieu de quatre états à maintenir en cohérence.
+const TOUR_STATUSES = {
+  brouillon:     { label: 'Brouillon', tone: 'draft', help: 'Aucune demande envoyée. Le tour n\'est visible que par vous.' },
+  en_validation: { label: 'En validation', tone: 'pending', help: 'Les demandes sont parties. En attente de la réponse des courtiers inscripteurs.' },
+  confirme:      { label: 'Confirmé', tone: 'ok', help: 'Toutes les visites sont confirmées. Le tour peut être partagé avec un acheteur.' },
+  partage:       { label: 'Partagé', tone: 'shared', help: 'Le tour a été partagé avec l\'acheteur.' },
+};
+
+// Sans réponse au bout du délai, l'arrêt bascule visuellement en « sans
+// réponse » sans qu'on ait à écrire dans la donnée : c'est le temps qui a
+// changé, pas la demande.
+const RELANCE_DELAY_MS = 48 * 3600 * 1000;
+
+function effectiveStopStatus(stop, tour) {
+  if (stop.status !== 'pending') return stop.status;
+  const since = tour && (tour.relancedAt || tour.sentAt);
+  if (since && Date.now() - since > RELANCE_DELAY_MS) return 'noreply';
+  return 'pending';
+}
+function stopNeedsAction(stop, tour) {
+  return !!STOP_STATUSES[effectiveStopStatus(stop, tour)].action;
+}
+
+function tourStatus(t) {
+  if (!t.sentAt) return 'brouillon';
+  if (t.sharedAt) return 'partage';
+  const props = t.stops.filter(s => s.type === 'property');
+  return props.some(s => stopNeedsAction(s, t)) ? 'en_validation' : 'confirme';
+}
+
+// Compte des réponses, pour le récapitulatif de l'étape « attendre la
+// validation » et pour décider quels CTA proposer.
+function validationTally(t) {
+  const props = t.stops.filter(s => s.type === 'property');
+  const tally = { total: props.length, confirmed: 0, waiting: 0, toHandle: 0 };
+  props.forEach(s => {
+    const st = effectiveStopStatus(s, t);
+    if (st === 'confirmed') tally.confirmed++;
+    else if (st === 'pending') tally.waiting++;
+    else tally.toHandle++;
+  });
+  return tally;
 }
 
 // « Ajouter une destination » ajoute à la fin du tour. Ouvert depuis le crayon
@@ -336,12 +400,12 @@ function stopShortLabel(stop) {
 function seedTours() {
   return [
     {
-      id: 't1', buyerId: 'b1', date: '2026-07-10', time: '15:00', sentAt: Date.now() - 100000,
+      id: 't1', buyerId: 'b1', date: '2026-07-10', time: '15:00', sentAt: Date.now() - 100000, sharedAt: Date.now() - 95000,
       stops: [
         makeStop('500 Rue D\'Iberville, Montréal, QC H2H 2S6', '18234567', { status: 'confirmed', lockedStart: '15:00' }),
         makePause(30),
         makeStop('515 Boul. Lacombe, Repentigny, QC J6A 1E5', '18234599', { status: 'confirmed', lockedStart: '16:00' }),
-        makeStop('214 Rue des Oranges, Montréal, QC H2H 2S6', '18234612', { status: 'pending' }),
+        makeStop('214 Rue des Oranges, Montréal, QC H2H 2S6', '18234612', { status: 'confirmed', lockedStart: '17:00' }),
       ],
     },
     {
@@ -353,19 +417,22 @@ function seedTours() {
       ],
     },
     {
+      // Contre-proposition et refus : les deux cas qui demandent un arbitrage.
       id: 't3', buyerId: 'b1', date: '2026-07-12', time: '15:00', sentAt: Date.now() - 80000,
       stops: [
         makeStop('210 Boulevard Saint-Martin, Laval, QC H7M 1Y8', '18235589', { status: 'confirmed', lockedStart: '15:00' }),
-        makeStop('145 Rue Sainte-Catherine, Montréal, QC H2X 1K8', '18235477', { status: 'pending' }),
-        makeStop('567 Boulevard des Citrons, Boucherville, QC J4B 7K1', '18235078', { status: 'pending' }),
+        makeStop('145 Rue Sainte-Catherine, Montréal, QC H2X 1K8', '18235477', { status: 'proposed', proposedStart: '16:15' }),
+        makeStop('567 Boulevard des Citrons, Boucherville, QC J4B 7K1', '18235078', { status: 'refused' }),
         makeStop('567 Boulevard des Oliviers, Longueuil, QC J4K 2M9', '18235144', { status: 'confirmed', lockedStart: '17:00' }),
       ],
     },
     {
-      id: 't4', buyerId: 'b3', date: '2026-07-12', time: '16:00', sentAt: Date.now() - 70000,
+      // Tour entièrement confirmé, pas encore rattaché à un acheteur : c'est
+      // l'étape 4 du parcours, prête à être jouée en démo.
+      id: 't4', buyerId: null, date: '2026-07-12', time: '16:00', sentAt: Date.now() - 70000,
       stops: [
         makeStop('78 Avenue Victoria, Saint-Lambert, QC J4P 2H5', '18235512', { status: 'confirmed', lockedStart: '16:00' }),
-        makeStop('32 Rue Principale, Saint-Lambert, QC J4R 1H4', '18235356', { status: 'pending' }),
+        makeStop('32 Rue Principale, Saint-Lambert, QC J4R 1H4', '18235356', { status: 'confirmed', lockedStart: '17:00' }),
       ],
     },
     {
@@ -379,10 +446,11 @@ function seedTours() {
       ],
     },
     {
-      id: 't6', buyerId: 'b5', date: '2026-07-13', time: '17:15', sentAt: Date.now() - 50000,
+      // Brouillon : aucune demande n'est partie, rien n'est donc confirmé.
+      id: 't6', buyerId: 'b5', date: '2026-07-13', time: '17:15', sentAt: null,
       stops: [
         makeStop('500 Rue d\'Avaugour, Boucherville, QC J4B 5E7', '18234671', { status: 'pending' }),
-        makeStop('123 Avenue des Étoiles, Montréal, QC H3C 1A2', '18234733', { status: 'confirmed', lockedStart: '18:00' }),
+        makeStop('123 Avenue des Étoiles, Montréal, QC H3C 1A2', '18234733', { status: 'pending' }),
       ],
     },
   ];
@@ -400,9 +468,9 @@ const FEATURE_FLAGS = [
   { group: 'Sources de propriétés', id: 'customAddress', label: 'Adresse personnalisée', help: 'Ajouter un arrêt à une adresse libre, hors MLS.', default: true, wired: false },
   { group: 'Sources de propriétés', id: 'propertyViaBrokerOnly', label: 'Propriété via courtier uniquement (TB)', help: 'Sur TB, une propriété ne peut être ajoutée qu\'après avoir sélectionné un courtier.', default: false, wired: false },
 
-  { group: 'Parcours', id: 'stagedFlow', label: 'Parcours en 4 étapes', help: 'Brouillon → validation des courtiers → confirmé → partagé, avec un statut de tour explicite.', default: false, wired: false },
-  { group: 'Parcours', id: 'buyerAtEnd', label: 'Sélection du client à la fin', help: 'Le tour se construit sans acheteur ; le client est choisi une fois les visites confirmées.', default: false, wired: false },
-  { group: 'Parcours', id: 'partialShare', label: 'Partage en confirmation partielle', help: 'Autorise le partage au client même si toutes les visites ne sont pas encore confirmées.', default: true, wired: false },
+  { group: 'Parcours', id: 'stagedFlow', label: 'Parcours en 4 étapes', help: 'Brouillon → validation des courtiers → confirmé → partagé, avec un statut de tour explicite. Désactivé, on retrouve les deux états d\'origine : envoyé ou non.', default: true, wired: true },
+  { group: 'Parcours', id: 'buyerAtEnd', label: 'Sélection du client à la fin', help: 'Le tour se construit sans acheteur ; le client est choisi une fois les visites confirmées. Désactivé, on choisit le client avant de composer le tour.', default: true, wired: true },
+  { group: 'Parcours', id: 'partialShare', label: 'Partage en confirmation partielle', help: 'Autorise le partage au client même si toutes les visites ne sont pas encore confirmées.', default: true, wired: true },
   { group: 'Parcours', id: 'multishowing', label: 'Envoi groupé (Multishowing)', help: 'En attente de validation client — aligne le Buyer\'s Tour sur le comportement Multishowing.', default: false, wired: false },
 
   { group: 'Optimisation et timing', id: 'geoOptimize', label: 'Optimisation géographique', help: 'Ordonne les arrêts du plus proche au plus loin et calcule les temps de trajet sur les distances réelles, au lieu du tri alphabétique.', default: true, wired: true },
@@ -490,6 +558,8 @@ const state = {
   editingTourId: null,      // if editing an existing tour from the list
   contactSearch: '',
   contactSelectedBuyer: null,
+  contactPurpose: 'create',  // 'create' (étape 1) | 'share' (étape 4)
+  pendingLeave: null,        // navigation en attente de confirmation
   showBuyerForm: false,
   buyerFormErrors: {},
   modal: null,              // { type, ...payload }
@@ -516,8 +586,46 @@ function tourIsCompleted(t) {
 }
 
 function markDirtyIfSent() {
+  if (state.draft) state.dirty = true;
+}
+
+// Traiter la réponse d'un courtier n'est pas une modification du tour à lui
+// renotifier : c'est l'enregistrement de ce qu'il a répondu. On persiste
+// directement, sans passer par « envoyer une mise à jour ».
+function persistAnswer() {
   const t = currentTour();
-  if (t && t.sentAt) state.dirty = true;
+  if (t) t.stops = JSON.parse(JSON.stringify(state.draft.stops));
+}
+
+// Un tour composé mais jamais enregistré n'existe que dans state.draft : quitter
+// l'écran le perd sans trace. On demande confirmation plutôt que d'enregistrer
+// en douce — « je me suis trompé de tour » est un cas réel.
+function hasUnsavedWork() {
+  if (!state.draft) return false;
+  if (state.dirty) return true;
+  return !state.editingTourId && state.draft.stops.length > 0;
+}
+
+// Enregistre le brouillon courant sans rien envoyer. Partagé par le bouton
+// « Enregistrer » et par la sortie de secours du modal de confirmation.
+function saveDraftAsTour() {
+  const existing = currentTour();
+  if (existing) {
+    existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
+    existing.date = state.draft.date;
+    existing.time = state.draft.time;
+    existing.windowEnd = state.draft.windowEnd;
+    existing.stops = state.draft.stops;
+  } else {
+    const newId = uid();
+    state.tours.push({
+      id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
+      date: state.draft.date, time: state.draft.time, windowEnd: state.draft.windowEnd,
+      stops: state.draft.stops, sentAt: null,
+    });
+    state.editingTourId = newId;
+  }
+  state.dirty = false;
 }
 
 // After a geographic reorder the previously agreed times no longer match the
@@ -548,17 +656,29 @@ function reflowVisitTimes(draft) {
 }
 
 // Confirming a visit locks it at the time it currently occupies in the schedule.
-// Releasing it has to clear that time too: a stale lockedStart means a later
+// Any other status has to clear that time: a stale lockedStart means a later
 // re-confirmation would silently reuse the old hour instead of the stop's
 // current position in the tour.
-function setStopConfirmation(stop, confirmed) {
-  stop.status = confirmed ? 'confirmed' : 'pending';
-  stop.locked = confirmed;
-  if (!confirmed) { stop.lockedStart = null; return; }
+function setStopStatus(stop, status) {
+  stop.status = status;
+  stop.locked = status === 'confirmed';
+  if (status !== 'proposed') stop.proposedStart = null;
+  if (status !== 'confirmed') { stop.lockedStart = null; return; }
   if (!stop.lockedStart) {
     const row = computeSchedule(state.draft).find(r => r.stop.id === stop.id);
     if (row) stop.lockedStart = minutesToLabel(row.start).replace('h', ':');
   }
+}
+function setStopConfirmation(stop, confirmed) {
+  setStopStatus(stop, confirmed ? 'confirmed' : 'pending');
+}
+
+// Accepter la contre-proposition, c'est confirmer la visite à l'heure que le
+// courtier a proposée — pas à celle qu'on avait demandée.
+function acceptProposedStart(stop) {
+  const proposed = stop.proposedStart;
+  setStopStatus(stop, 'confirmed');
+  if (proposed) { stop.lockedStart = proposed; stop.locked = true; }
 }
 
 function optimizeDraftStops() {
@@ -580,12 +700,37 @@ function optimizeDraftStops() {
   showToast(message, 'success');
 }
 
+// Relancer remet le compteur du délai à zéro : les arrêts « sans réponse »
+// repassent en attente, puisqu'on vient de redemander.
+function relanceTour() {
+  const t = currentTour();
+  if (!t) return;
+  t.relancedAt = Date.now();
+  render();
+}
+
+// Étape 4 : rattacher l'acheteur et lui transmettre le tour.
+function shareTourWithBuyer(buyer) {
+  const t = currentTour();
+  state.draft.buyer = buyer;
+  if (t) {
+    t.buyerId = buyer.id;
+    t.stops = state.draft.stops;
+    t.date = state.draft.date;
+    t.time = state.draft.time;
+    t.windowEnd = state.draft.windowEnd;
+    t.sharedAt = Date.now();
+  }
+  state.dirty = false;
+}
+
 function saveDraftToTour(notify, notifyBuyer = false) {
   const t = state.tours.find(x => x.id === state.editingTourId);
   if (!t) return;
-  t.buyerId = state.draft.buyer.id;
+  t.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
   t.date = state.draft.date;
   t.time = state.draft.time;
+  t.windowEnd = state.draft.windowEnd;
   t.stops = state.draft.stops;
   if (notify) t.sharedWithBuyer = notifyBuyer;
   state.dirty = false;
@@ -600,8 +745,19 @@ function saveDraftToTour(notify, notifyBuyer = false) {
   );
 }
 
-function newDraft(buyer) {
-  return { buyer, date: todayPlus(3), time: '14:00', stops: [] };
+// L'acheteur peut être choisi à la fin (flag buyerAtEnd) : le tour se construit
+// alors sans lui. Il garde quand même un cadre — la fenêtre de disponibilité —
+// sans quoi on demanderait des créneaux aux courtiers sans savoir dans quelle
+// plage on peut les accepter.
+function newDraft(buyer = null) {
+  return { buyer, date: todayPlus(3), time: '14:00', windowEnd: '18:00', stops: [] };
+}
+
+// Fin réelle du tour, pour comparer à la fenêtre de disponibilité.
+function tourEndMinutes(draft) {
+  const rows = computeSchedule(draft);
+  const last = rows[rows.length - 1];
+  return last ? last.start + last.stop.duration : timeToMinutes(draft.time);
 }
 
 /* ---------------- Schedule computation ---------------- */
@@ -687,7 +843,7 @@ function setTopbarTitle(title) {
 function render() {
   const main = document.getElementById('main-content');
   if (state.screen === 'list') { setTopbarTitle('Tour de visites'); main.innerHTML = renderListScreen(); }
-  else if (state.screen === 'contact') { setTopbarTitle('Créer un tour de visites'); main.innerHTML = renderContactScreen(); }
+  else if (state.screen === 'contact') { setTopbarTitle(state.contactPurpose === 'share' ? 'Partager le tour de visites' : 'Créer un tour de visites'); main.innerHTML = renderContactScreen(); }
   else if (state.screen === 'builder') { setTopbarTitle('Créer un tour de visites'); main.innerHTML = renderBuilderScreen(); }
   else if (state.screen === 'map') { setTopbarTitle('Carte du tour'); main.innerHTML = renderMapScreen(); }
   else if (state.screen === 'report') { setTopbarTitle('Compte rendu de visite'); main.innerHTML = renderReportScreen(); }
@@ -742,15 +898,26 @@ function renderListScreen() {
       const rows = groups[date].map(t => {
         const b = state.buyers.find(b => b.id === t.buyerId);
         const propCount = t.stops.filter(s => s.type === 'property').length;
-        const allConfirmed = t.stops.filter(s => s.type === 'property').every(s => s.status === 'confirmed');
+        const status = tourStatus(t);
+        const meta = TOUR_STATUSES[status];
+        const tally = validationTally(t);
+        // Le badge dit où en est le tour ; la ligne du dessous dit ce qu'il
+        // reste à faire, qui est l'information que le courtier cherche.
+        const detail = !flag('stagedFlow') ? '' : status === 'en_validation' && tally.toHandle
+          ? `${tally.toHandle} réponse${tally.toHandle > 1 ? 's' : ''} à traiter`
+          : status === 'en_validation'
+            ? `${tally.confirmed}/${tally.total} confirmée${tally.confirmed > 1 ? 's' : ''}`
+            : '';
         return `
           <div class="tour-card" data-open-tour="${t.id}">
             <div class="tour-card-icon">
-              ${tourIconSvg(allConfirmed ? 'confirmed' : 'pending')}
+              ${tourIconSvg(status === 'confirme' || status === 'partage' ? 'confirmed' : 'pending')}
             </div>
             <div class="tour-card-body">
-              <p class="tour-card-name">${esc(b ? `${b.prenom} ${b.nom}` : 'Acheteur')}${t.sentAt ? '' : ' <span class="draft-chip">Non envoyé</span>'}</p>
-              <p class="tour-card-meta">Le tour commence à <strong>${t.time.replace(':', 'h')}</strong></p>
+              <p class="tour-card-name">${esc(b ? `${b.prenom} ${b.nom}` : 'Sans acheteur')} ${flag('stagedFlow')
+                ? `<span class="status-chip ${meta.tone}">${esc(meta.label)}</span>`
+                : (t.sentAt ? '' : '<span class="draft-chip">Non envoyé</span>')}</p>
+              <p class="tour-card-meta">Le tour commence à <strong>${t.time.replace(':', 'h')}</strong>${detail ? ` <span class="dot">•</span> ${detail}` : ''}</p>
             </div>
             <div class="tour-card-count">${propCount}</div>
             <div class="tour-card-chevron"><img src="assets/badge-chevron.svg" alt="" width="9" height="15"></div>
@@ -820,13 +987,27 @@ function renderContactScreen() {
   const formBlock = state.showBuyerForm ? renderBuyerForm() : '';
 
   const canSave = selected || (state.showBuyerForm && buyerFormValid());
+  const sharing = state.contactPurpose === 'share';
+
+  // En partage, l'écran rappelle ce qui va être transmis : on choisit un
+  // destinataire, pas un contact dans l'abstrait.
+  const recap = !sharing || !state.draft ? '' : (() => {
+    const props = state.draft.stops.filter(s => s.type === 'property');
+    const end = tourEndMinutes(state.draft);
+    return `
+      <div class="share-recap">
+        <p class="share-recap-title">Tour du ${formatDateLong(state.draft.date)}</p>
+        <p class="share-recap-meta">${props.length} visite${props.length > 1 ? 's' : ''} confirmée${props.length > 1 ? 's' : ''}, de ${state.draft.time.replace(':', 'h')} à ${minutesToLabel(end)}</p>
+      </div>`;
+  })();
 
   return `
     <div class="contact-pane">
+      ${recap}
       ${searchBlock}
       ${formBlock}
       <div class="form-actions" style="margin-top:${state.showBuyerForm || selected ? '4px' : '0'};">
-        <button class="btn btn-primary" id="btn-save-contact" ${canSave ? '' : 'disabled'}>Sauvegarder</button>
+        <button class="btn btn-primary" id="btn-save-contact" ${canSave ? '' : 'disabled'}>${sharing ? 'Partager le tour' : 'Sauvegarder'}</button>
         <button class="btn btn-outline" id="btn-cancel-contact">Annuler</button>
       </div>
     </div>
@@ -903,6 +1084,18 @@ function renderBuilderScreen() {
   const buyer = draft.buyer;
   const rows = computeSchedule(draft);
   const propertyCount = draft.stops.filter(s => s.type === 'property').length;
+  const saved = currentTour();
+  // Le statut porte sur ce qui est à l'écran — le brouillon en cours — et non
+  // sur la copie enregistrée : sinon un arrêt qu'on vient de retirer
+  // continuerait de bloquer le partage.
+  const liveTour = {
+    stops: draft.stops,
+    sentAt: saved && saved.sentAt,
+    sharedAt: saved && saved.sharedAt,
+    relancedAt: saved && saved.relancedAt,
+  };
+  const status = tourStatus(liveTour);
+  const tally = validationTally(liveTour);
   const bannerEditTitle = flag('insertFromBanner')
     ? 'Insérer une pause, un arrêt ou une propriété à cet endroit du tour'
     : 'Modifier la visite suivante';
@@ -934,6 +1127,7 @@ function renderBuilderScreen() {
     }
 
     let card;
+    let answerHtml = '';
     if (stop.type === 'pause') {
       card = `
         <div class="stop-card" draggable="true" data-stop-id="${stop.id}">
@@ -949,25 +1143,26 @@ function renderBuilderScreen() {
           </div>
         </div>`;
     } else {
-      const statusLabel = stop.status === 'confirmed'
-        ? `<span class="status-ok">Confirmée</span>`
-        : `<span class="status-pending">À confirmer avec le courtier inscripteur</span>`;
+      const st = effectiveStopStatus(stop, liveTour);
+      const stMeta = STOP_STATUSES[st];
+      const statusLabel = `<span class="status-${stMeta.tone}">${esc(stMeta.label)}${st === 'proposed' && stop.proposedStart ? ` — ${stop.proposedStart.replace(':', 'h')}` : ''}</span>`;
       // The simulate control sits on the status itself rather than adding a
       // fourth icon to the action row: it acts on the thing it changes, and the
       // row is already carrying three buttons.
+      const nextSt = STOP_STATUS_CYCLE[(STOP_STATUS_CYCLE.indexOf(st) + 1) % STOP_STATUS_CYCLE.length];
       const statusHtml = !flag('simulateConfirmation') ? statusLabel : `
         <button class="status-sim" data-sim-status="${stop.id}"
-          title="Simuler la réponse du courtier inscripteur : ${stop.status === 'confirmed' ? 'repasser en attente' : 'confirmer la visite'}">
+          title="Simuler la réponse du courtier inscripteur — état suivant : ${esc(STOP_STATUSES[nextSt].short)}">
           ${statusLabel}${icon('sync')}
         </button>`;
       card = `
         <div class="stop-card" draggable="true" data-stop-id="${stop.id}">
           <span class="drag-handle">${icon('drag')}</span>
           <div class="stop-icon">
-            ${stop.status === 'confirmed' ? STOP_ICON_CONFIRMED_SVG : STOP_ICON_PENDING_SVG}
+            ${st === 'confirmed' ? STOP_ICON_CONFIRMED_SVG : STOP_ICON_PENDING_SVG}
           </div>
           <div class="stop-body">
-            <p class="stop-address">${esc(stop.address)}</p>
+            <p class="stop-address">${esc(stop.address)}${stop.external ? ` <span class="ext-chip" title="Hors catalogue : la demande part par courriel au courtier inscripteur, sans créer de fiche.">Hors catalogue</span>` : ''}</p>
             <p class="stop-meta">Heure de visite : ${minutesToLabel(start)} – ${minutesToLabel(start + stop.duration)} <span class="dot">•</span> ${statusHtml}${stop.visited ? ` <span class="dot">•</span> <span class="status-visited">${icon('star')} Visité</span>` : ''}</p>
           </div>
           <div class="stop-actions">
@@ -976,18 +1171,79 @@ function renderBuilderScreen() {
             <button class="btn-icon toggle-visited ${stop.visited ? 'active' : ''}" data-toggle-visited="${stop.id}" title="${stop.visited ? 'Voir le compte rendu de visite' : 'Faire le compte rendu de visite'}">${icon('star')}</button>
           </div>
         </div>`;
+
+      // Une réponse qui n'est pas « confirmée » demande un arbitrage. La
+      // décision se prend sous l'arrêt concerné plutôt que dans une liste à
+      // part : elle se lit dans le contexte de l'horaire qu'elle affecte.
+      if (st === 'proposed') {
+        answerHtml = `
+          <div class="stop-answer warn">${icon('sync')}
+            <span class="banner-text">Le courtier propose <strong>${stop.proposedStart ? stop.proposedStart.replace(':', 'h') : 'un autre créneau'}</strong> au lieu de ${minutesToLabel(start)}.</span>
+            <button class="btn-inline" data-accept-proposed="${stop.id}">Accepter</button>
+            <button class="btn-inline ghost" data-keep-request="${stop.id}">Garder ma demande</button>
+          </div>`;
+      } else if (st === 'refused') {
+        answerHtml = `
+          <div class="stop-answer danger">${icon('warning')}
+            <span class="banner-text">Le courtier inscripteur a refusé cette visite.</span>
+            <button class="btn-inline" data-remove-stop-inline="${stop.id}">Retirer du tour</button>
+          </div>`;
+      } else if (st === 'noreply') {
+        answerHtml = `
+          <div class="stop-answer muted">${icon('hourglass')}
+            <span class="banner-text">Sans réponse depuis 48 h.</span>
+            <button class="btn-inline" data-relance-stop="${stop.id}">Relancer</button>
+            <button class="btn-inline ghost" data-remove-stop-inline="${stop.id}">Retirer du tour</button>
+          </div>`;
+      }
     }
-    return travelHtml + card + conflictHtml;
+    return travelHtml + card + answerHtml + conflictHtml;
   }).join('');
 
-  return `
+  // L'acheteur peut arriver en fin de parcours : tant qu'il n'est pas choisi, on
+  // dit explicitement pourquoi le champ est vide plutôt que de le masquer.
+  const buyerField = buyer ? `
     <div class="field">
       <label class="field-label">Nom de l'acheteur</label>
       <div class="readonly-chip" id="btn-change-buyer">
         ${esc(buyer.prenom + ' ' + buyer.nom)}
         ${icon('chevronRight')}
       </div>
-    </div>
+    </div>` : `
+    <div class="field">
+      <label class="field-label">Acheteur</label>
+      <div class="readonly-chip is-muted" id="btn-pick-buyer">
+        <span>Choisi une fois les visites confirmées</span>
+        ${icon('chevronRight')}
+      </div>
+    </div>`;
+
+  // Sans fenêtre de disponibilité, on demande des créneaux aux courtiers sans
+  // savoir dans quelle plage on pourra les accepter. L'avertissement se
+  // déclenche sur la fin réelle du tour, trajets compris.
+  const endMin = tourEndMinutes(draft);
+  const windowMin = timeToMinutes(draft.windowEnd || '23:45');
+  const windowHtml = propertyCount === 0 || endMin <= windowMin ? '' : `
+    <div class="alert-banner warning window-warning" style="margin-bottom:14px;">${icon('warning')}
+      <span class="banner-text"><strong>Attention :</strong> le tour se termine à ${minutesToLabel(endMin)}, après la fin de disponibilité de ${minutesToLabel(windowMin)}.</span>
+    </div>`;
+
+  const validationPanel = !flag('stagedFlow') || (status !== 'en_validation' && status !== 'confirme') ? '' : `
+    <div class="validation-panel ${status}">
+      <div class="validation-counts">
+        <span class="vcount ok">${tally.confirmed} confirmée${tally.confirmed > 1 ? 's' : ''}</span>
+        ${tally.waiting ? `<span class="vcount wait">${tally.waiting} en attente</span>` : ''}
+        ${tally.toHandle ? `<span class="vcount act">${tally.toHandle} à traiter</span>` : ''}
+      </div>
+      <p class="validation-help">${status === 'confirme'
+        ? 'Toutes les visites sont confirmées. Le tour peut être partagé avec un acheteur.'
+        : tally.toHandle
+          ? 'Des courtiers ont répondu autre chose qu\'une confirmation. Traitez ces réponses pour débloquer le partage.'
+          : 'Demandes envoyées. En attente de la réponse des courtiers inscripteurs.'}</p>
+    </div>`;
+
+  return `
+    ${buyerField}
     <div class="field-row">
       <div class="field">
         <label class="field-label">Date</label>
@@ -996,12 +1252,20 @@ function renderBuilderScreen() {
         </div>
       </div>
       <div class="field">
-        <label class="field-label">Heure</label>
+        <label class="field-label">Début</label>
         <select class="input select" id="builder-time">
           ${TIME_OPTIONS.map(t => `<option value="${t}" ${t === draft.time ? 'selected' : ''}>${t.replace(':', 'h')}</option>`).join('')}
         </select>
       </div>
+      <div class="field">
+        <label class="field-label">Fin de disponibilité</label>
+        <select class="input select" id="builder-window-end">
+          ${TIME_OPTIONS.map(t => `<option value="${t}" ${t === draft.windowEnd ? 'selected' : ''}>${t.replace(':', 'h')}</option>`).join('')}
+        </select>
+      </div>
     </div>
+
+    ${validationPanel}
 
     <p class="section-label" style="margin-top:8px;">Tour :</p>
     <div class="action-row">
@@ -1010,17 +1274,71 @@ function renderBuilderScreen() {
       <button class="btn btn-outline" id="btn-show-map" ${draft.stops.length === 0 ? 'disabled' : ''}>Afficher sur la carte</button>
     </div>
 
+    ${windowHtml}
     <div>${stopsHtml}</div>
 
 
-    <div class="footer-actions">${renderFooterActions(propertyCount)}</div>
+    <div class="footer-actions">${renderFooterActions(propertyCount, status, tally)}</div>
   `;
 }
 
-function renderFooterActions(propertyCount) {
+// Une seule action primaire par statut : c'est le statut qui dit quoi faire
+// ensuite, pas l'utilisateur qui doit le déduire de trois boutons de même poids.
+function renderFooterActions(propertyCount, status, tally) {
+  if (!flag('stagedFlow')) return renderLegacyFooterActions(propertyCount);
+  const del = `<button class="btn btn-danger-outline" id="btn-delete-tour">${status === 'brouillon'
+    ? 'Supprimer' : 'Supprimer ce tour et annuler les demandes de visites'}</button>`;
+  const shareLabel = state.draft.buyer ? 'Partager avec l\'acheteur' : 'Choisir l\'acheteur et partager';
+
+  if (status === 'brouillon') {
+    return `
+      <button class="btn btn-primary" id="btn-send-tour" ${propertyCount === 0 ? 'disabled' : ''}>
+        Envoyer les demandes de visites
+      </button>
+      <button class="btn btn-outline" id="btn-save-draft" ${propertyCount === 0 ? 'disabled' : ''}>Enregistrer</button>
+      ${del}
+    `;
+  }
+  if (state.dirty) {
+    return `
+      <button class="btn btn-primary" id="btn-save-update">Envoyer une mise à jour</button>
+      <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
+      ${del}
+    `;
+  }
+  if (status === 'partage') {
+    return `
+      <button class="btn btn-primary" id="btn-share-buyer">Renvoyer le tour à l'acheteur</button>
+      ${del}
+    `;
+  }
+  if (status === 'confirme') {
+    return `
+      <button class="btn btn-primary" id="btn-share-buyer">${shareLabel}</button>
+      <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
+      ${del}
+    `;
+  }
+  // En validation. Le partage n'est ouvert que si le client accepte de diffuser
+  // un tour partiellement confirmé. Quand il ne l'est pas, on dit pourquoi
+  // plutôt que de laisser un bouton grisé sans explication.
+  const remaining = tally.waiting + tally.toHandle;
+  return `
+    ${flag('partialShare')
+      ? `<button class="btn btn-primary" id="btn-share-buyer">${shareLabel} (${tally.confirmed}/${tally.total})</button>`
+      : `<button class="btn btn-primary" disabled>${shareLabel}</button>
+         <p class="footer-note">${remaining} visite${remaining > 1 ? 's' : ''} sans confirmation. Le partage s'ouvrira quand toutes les visites seront confirmées.</p>`}
+    ${remaining ? `<button class="btn btn-outline" id="btn-relance">Relancer les courtiers</button>` : ''}
+    <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
+    ${del}
+  `;
+}
+
+// Comportement d'origine, conservé tant que le parcours en 4 étapes n'est pas
+// validé par le client : deux états seulement, envoyé ou non.
+function renderLegacyFooterActions(propertyCount) {
   const tour = currentTour();
   const isSent = !!(tour && tour.sentAt);
-
   if (isSent && state.dirty) {
     return `
       <button class="btn btn-primary" id="btn-save-update">Envoyer une mise à jour</button>
@@ -1034,7 +1352,6 @@ function renderFooterActions(propertyCount) {
       <button class="btn btn-danger-outline" id="btn-delete-tour">Supprimer ce tour et annuler les demandes de visites</button>
     `;
   }
-  // New tour or saved draft (not sent yet)
   return `
     <button class="btn btn-primary" id="btn-send-tour" ${propertyCount === 0 ? 'disabled' : ''}>
       Envoyer les demandes de visites
@@ -1064,6 +1381,7 @@ function renderModal() {
     root.innerHTML = renderConfirmModal('Supprimer le tour', body, 'btn-confirm-delete-tour');
     return;
   }
+  if (state.modal.type === 'confirmLeave') { root.innerHTML = renderConfirmLeaveModal(); return; }
   if (state.modal.type === 'editBuyer') { root.innerHTML = renderEditBuyerModal(); return; }
   if (state.modal.type === 'editStop') { root.innerHTML = renderEditStopModal(); return; }
   root.innerHTML = '';
@@ -1232,6 +1550,31 @@ function renderConfirmModal(title, body, confirmId) {
         <div class="modal-footer" style="display:flex;gap:10px;">
           <button class="btn btn-danger" id="${confirmId}">Supprimer</button>
           <button class="btn btn-outline" id="modal-cancel">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Trois issues, dans l'ordre où on veut qu'elles soient choisies : enregistrer
+// d'abord, quitter ensuite, rester en dernier. Le bouton destructeur n'est pas
+// le plus accessible (Nielsen #5 — prévention de l'erreur).
+function renderConfirmLeaveModal() {
+  const saved = !!state.editingTourId;
+  return `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal modal-sm">
+        <div class="modal-head"><h2>Quitter sans enregistrer ?</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
+        <div class="modal-body">
+          <p style="font-size:14.5px;color:var(--texte-secondaire);line-height:1.5;margin:0;">
+            ${saved
+              ? 'Ce tour a été modifié depuis son dernier enregistrement. Si vous quittez maintenant, ces modifications seront perdues.'
+              : 'Ce tour de visites n\'a jamais été enregistré. Si vous quittez maintenant, il sera perdu.'}
+          </p>
+        </div>
+        <div class="modal-footer" style="display:flex;flex-direction:column;gap:10px;">
+          <button class="btn btn-primary" id="btn-leave-save">Enregistrer et quitter</button>
+          <button class="btn btn-danger-outline" id="btn-leave-discard">Quitter sans enregistrer</button>
+          <button class="btn btn-outline" id="modal-cancel">Rester sur le tour</button>
         </div>
       </div>
     </div>`;
@@ -1655,21 +1998,25 @@ function bindEvents() {
     el.onclick = (e) => {
       e.preventDefault();
       const id = el.getAttribute('data-nav');
-      if (id === 'tours') { state.screen = 'list'; state.draft = null; render(); return; }
+      if (id === 'tours') { leaveTour(() => { state.screen = 'list'; state.draft = null; }); return; }
       if (id === 'logout') { showToast('Déconnexion — hors scope du prototype.'); return; }
       showToast('Cette section n\'est pas incluse dans ce prototype.');
     };
   });
 
   const menuBtn = document.getElementById('mobile-menu-btn');
-  if (menuBtn) menuBtn.onclick = () => { state.screen = 'menu'; state.draft = null; render(); };
+  if (menuBtn) menuBtn.onclick = () => leaveTour(() => { state.screen = 'menu'; state.draft = null; });
 
+  // Revenir depuis la carte ou le compte rendu reste dans le tour : rien n'est
+  // perdu. Ne sont gardées que les sorties qui abandonnent le brouillon.
   const goBack = () => {
-    if (state.screen === 'map') { state.screen = 'builder'; }
-    else if (state.screen === 'report') { state.screen = 'builder'; state.reportStopId = null; state.reportDraft = null; }
-    else if (state.screen === 'contact' || state.screen === 'builder') { state.screen = 'list'; state.draft = null; }
-    else { state.screen = 'menu'; }
-    render();
+    if (state.screen === 'map') { state.screen = 'builder'; render(); return; }
+    if (state.screen === 'report') { state.screen = 'builder'; state.reportStopId = null; state.reportDraft = null; render(); return; }
+    if (state.screen === 'contact' && state.contactPurpose === 'share') { state.contactPurpose = 'create'; state.screen = 'builder'; render(); return; }
+    leaveTour(() => {
+      if (state.screen === 'contact' || state.screen === 'builder') { state.screen = 'list'; state.draft = null; }
+      else { state.screen = 'menu'; }
+    });
   };
   const backBtn = document.getElementById('mobile-back-btn');
   if (backBtn) backBtn.onclick = goBack;
@@ -1700,19 +2047,25 @@ function bindListEvents() {
       const t = state.tours.find(x => x.id === el.getAttribute('data-open-tour'));
       state.editingTourId = t.id;
       const buyer = state.buyers.find(b => b.id === t.buyerId);
-      state.draft = { buyer, date: t.date, time: t.time, stops: JSON.parse(JSON.stringify(t.stops)) };
+      state.draft = { buyer: buyer || null, date: t.date, time: t.time, windowEnd: t.windowEnd || '18:00', stops: JSON.parse(JSON.stringify(t.stops)) };
+      state.dirty = false;
       state.screen = 'builder';
       render();
     };
   });
   const btn = document.getElementById('btn-create-tour');
   if (btn) btn.onclick = () => {
-    state.screen = 'contact';
     state.contactSearch = '';
     state.contactSelectedBuyer = null;
     state.showBuyerForm = false;
     state.buyerFormDraft = null;
     state.editingTourId = null;
+    state.dirty = false;
+    state.contactPurpose = 'create';
+    // Avec buyerAtEnd, le tour se construit d'abord ; le client est choisi une
+    // fois les visites confirmées, à l'étape 4.
+    if (flag('buyerAtEnd')) { state.draft = newDraft(null); state.screen = 'builder'; }
+    else { state.screen = 'contact'; }
     render();
   };
 }
@@ -1767,12 +2120,25 @@ function bindContactEvents() {
       }
     }
     if (!buyer) return;
+    if (state.contactPurpose === 'share') {
+      shareTourWithBuyer(buyer);
+      state.contactPurpose = 'create';
+      state.screen = 'builder';
+      render();
+      showToast(`Tour partagé avec ${buyer.prenom} ${buyer.nom}.`, 'success');
+      return;
+    }
     state.draft = newDraft(buyer);
     state.screen = 'builder';
     render();
   };
   const cancelBtn = document.getElementById('btn-cancel-contact');
-  if (cancelBtn) cancelBtn.onclick = () => { state.screen = 'list'; render(); };
+  if (cancelBtn) cancelBtn.onclick = () => {
+    // Annuler depuis l'étape 4 ramène au tour, pas à la liste : le tour existe
+    // déjà, on renonce juste à le partager maintenant.
+    if (state.contactPurpose === 'share') { state.contactPurpose = 'create'; state.screen = 'builder'; render(); return; }
+    leaveTour(() => { state.screen = 'list'; state.draft = null; });
+  };
 }
 
 function bindBuyerFormEvents() {
@@ -1804,6 +2170,15 @@ function syncSaveButton() {
   if (btn) btn.disabled = !buyerFormValid();
 }
 
+// Sortie d'un tour : sans travail en cours on part directement, sinon on
+// propose les trois issues réelles — enregistrer, abandonner, rester.
+function leaveTour(go) {
+  if (!hasUnsavedWork()) { go(); render(); return; }
+  state.pendingLeave = go;
+  state.modal = { type: 'confirmLeave' };
+  render();
+}
+
 /* ----- Builder events ----- */
 
 function bindBuilderEvents() {
@@ -1831,6 +2206,9 @@ function bindBuilderEvents() {
   };
   const addBtn1 = document.getElementById('btn-add-destination');
   if (addBtn1) addBtn1.onclick = openDestModal;
+
+  const windowEnd = document.getElementById('builder-window-end');
+  if (windowEnd) windowEnd.onchange = () => { state.draft.windowEnd = windowEnd.value; markDirtyIfSent(); render(); };
 
   const optimizeBtn = document.getElementById('btn-optimize');
   if (optimizeBtn) optimizeBtn.onclick = optimizeDraftStops;
@@ -1907,44 +2285,110 @@ function bindBuilderEvents() {
     };
   });
 
+  // Le simulateur parcourt le cycle complet des réponses possibles, pour que la
+  // démo puisse montrer le refus et la contre-proposition, pas seulement le
+  // succès.
   document.querySelectorAll('[data-sim-status]').forEach(el => {
     el.onclick = () => {
       const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-sim-status'));
       if (!stop) return;
-      const confirmed = stop.status !== 'confirmed';
-      setStopConfirmation(stop, confirmed);
+      const cur = effectiveStopStatus(stop, currentTour());
+      const next = STOP_STATUS_CYCLE[(STOP_STATUS_CYCLE.indexOf(cur) + 1) % STOP_STATUS_CYCLE.length];
+      if (next === 'proposed') {
+        const row = computeSchedule(state.draft).find(r => r.stop.id === stop.id);
+        setStopStatus(stop, 'proposed');
+        stop.proposedStart = minutesToLabel((row ? row.start : timeToMinutes(state.draft.time)) + 45).replace('h', ':');
+      } else if (next === 'noreply') {
+        // « Sans réponse » se déduit du temps écoulé : pour la démo, on recule
+        // la date d'envoi au-delà du délai plutôt que d'inventer un statut.
+        setStopStatus(stop, 'pending');
+        const t = currentTour();
+        if (t) { t.relancedAt = null; t.sentAt = Date.now() - RELANCE_DELAY_MS - 1000; }
+      } else {
+        setStopStatus(stop, next);
+      }
       markDirtyIfSent();
       render();
-      showToast(confirmed
-        ? `Visite confirmée par ${stop.courtier} à ${stop.lockedStart.replace(':', 'h')}.`
-        : `${stop.courtier} n'a pas encore confirmé cette visite.`,
-        confirmed ? 'success' : 'default');
+      const msgs = {
+        pending: `Demande envoyée à ${stop.courtier}, en attente de réponse.`,
+        confirmed: `Visite confirmée par ${stop.courtier}${stop.lockedStart ? ` à ${stop.lockedStart.replace(':', 'h')}` : ''}.`,
+        proposed: `${stop.courtier} propose ${stop.proposedStart ? stop.proposedStart.replace(':', 'h') : 'un autre créneau'}.`,
+        refused: `${stop.courtier} a refusé cette visite.`,
+        noreply: `${stop.courtier} n'a pas répondu depuis 48 h.`,
+      };
+      showToast(msgs[next], next === 'confirmed' ? 'success' : 'default');
     };
   });
+
+  // Arbitrages posés sous chaque arrêt qui attend une décision.
+  document.querySelectorAll('[data-accept-proposed]').forEach(el => {
+    el.onclick = () => {
+      const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-accept-proposed'));
+      if (!stop) return;
+      const at = stop.proposedStart;
+      acceptProposedStart(stop);
+      persistAnswer();
+      render();
+      showToast(`Visite confirmée à ${at ? at.replace(':', 'h') : 'l\'heure proposée'}.`, 'success');
+    };
+  });
+  document.querySelectorAll('[data-keep-request]').forEach(el => {
+    el.onclick = () => {
+      const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-keep-request'));
+      if (!stop) return;
+      setStopStatus(stop, 'pending');
+      persistAnswer();
+      render();
+      showToast(`Demande maintenue auprès de ${stop.courtier}.`);
+    };
+  });
+  document.querySelectorAll('[data-remove-stop-inline]').forEach(el => {
+    el.onclick = () => {
+      const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-remove-stop-inline'));
+      if (!stop) return;
+      state.draft.stops = state.draft.stops.filter(s => s.id !== stop.id);
+      persistAnswer();
+      render();
+      showToast(`${stopShortLabel(stop)} retiré du tour.`);
+    };
+  });
+  document.querySelectorAll('[data-relance-stop]').forEach(el => {
+    el.onclick = () => {
+      const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-relance-stop'));
+      if (!stop) return;
+      relanceTour();
+      showToast(`Relance envoyée à ${stop.courtier}.`, 'success');
+    };
+  });
+  const relanceBtn = document.getElementById('btn-relance');
+  if (relanceBtn) relanceBtn.onclick = () => {
+    relanceTour();
+    showToast('Relance envoyée aux courtiers qui n\'ont pas encore répondu.', 'success');
+  };
 
   const sendBtn = document.getElementById('btn-send-tour');
   if (sendBtn) sendBtn.onclick = () => { state.modal = { type: 'confirmSend' }; render(); };
 
+  // Étape 4 : le partage passe par le choix du client. Quand le tour en a déjà
+  // un, on repart quand même de cet écran — c'est là qu'on peut le changer.
+  const goToShare = () => {
+    state.contactPurpose = 'share';
+    state.contactSelectedBuyer = state.draft.buyer || null;
+    state.contactSearch = '';
+    state.showBuyerForm = false;
+    state.buyerFormDraft = null;
+    state.screen = 'contact';
+    render();
+  };
   const shareBtn = document.getElementById('btn-share-buyer');
-  if (shareBtn) shareBtn.onclick = () => showToast('Le tour a été partagé avec l\'acheteur.', 'success');
+  if (shareBtn) shareBtn.onclick = goToShare;
+  const pickBuyer = document.getElementById('btn-pick-buyer');
+  if (pickBuyer) pickBuyer.onclick = goToShare;
 
 
   const saveDraftBtn = document.getElementById('btn-save-draft');
   if (saveDraftBtn) saveDraftBtn.onclick = () => {
-    const existing = currentTour();
-    if (existing) {
-      existing.buyerId = state.draft.buyer.id;
-      existing.date = state.draft.date;
-      existing.time = state.draft.time;
-      existing.stops = state.draft.stops;
-    } else {
-      const newId = uid();
-      state.tours.push({
-        id: newId, buyerId: state.draft.buyer.id, date: state.draft.date, time: state.draft.time,
-        stops: state.draft.stops, sentAt: null,
-      });
-      state.editingTourId = newId;
-    }
+    saveDraftAsTour();
     state.screen = 'list';
     state.listTab = 'upcoming';
     state.draft = null;
@@ -2164,7 +2608,7 @@ function bindDragAndDrop() {
 
 /* ----- Modal events ----- */
 
-function closeModal() { state.modal = null; state.insertBeforeId = null; render(); }
+function closeModal() { state.modal = null; state.insertBeforeId = null; state.pendingLeave = null; render(); }
 
 function bindModalEvents() {
   const overlay = document.getElementById('modal-overlay');
@@ -2200,19 +2644,25 @@ function bindModalEvents() {
   if (state.modal.type === 'confirmSend') {
     const finalizeSend = (notifyBuyer) => {
       const existing = currentTour();
+      // Prévenir l'acheteur à l'envoi ne vaut que s'il est déjà connu ; sinon le
+      // partage viendra à l'étape 4, une fois les visites confirmées.
+      const sharedAt = notifyBuyer && state.draft.buyer ? Date.now() : null;
       if (existing) {
         // Sending a saved draft: update it in place and mark it sent.
-        existing.buyerId = state.draft.buyer.id;
+        existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
         existing.date = state.draft.date;
         existing.time = state.draft.time;
+        existing.windowEnd = state.draft.windowEnd;
         existing.stops = state.draft.stops;
         existing.sentAt = Date.now();
-        existing.sharedWithBuyer = notifyBuyer;
+        existing.relancedAt = null;
+        existing.sharedAt = sharedAt;
       } else {
         const newId = uid();
         state.tours.push({
-          id: newId, buyerId: state.draft.buyer.id, date: state.draft.date, time: state.draft.time,
-          stops: state.draft.stops, sentAt: Date.now(), sharedWithBuyer: notifyBuyer,
+          id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
+          date: state.draft.date, time: state.draft.time, windowEnd: state.draft.windowEnd,
+          stops: state.draft.stops, sentAt: Date.now(), relancedAt: null, sharedAt,
         });
         state.editingTourId = newId;
       }
@@ -2247,6 +2697,14 @@ function bindModalEvents() {
       render();
       showToast('Tour de visites supprimé.');
     };
+  }
+  if (state.modal.type === 'confirmLeave') {
+    const go = state.pendingLeave;
+    const leave = () => { state.pendingLeave = null; state.modal = null; state.dirty = false; if (go) go(); render(); };
+    const saveBtn = document.getElementById('btn-leave-save');
+    if (saveBtn) saveBtn.onclick = () => { saveDraftAsTour(); leave(); showToast('Tour enregistré. Vous pourrez l\'envoyer plus tard.', 'success'); };
+    const discardBtn = document.getElementById('btn-leave-discard');
+    if (discardBtn) discardBtn.onclick = leave;
   }
   if (state.modal.type === 'editBuyer') bindEditBuyerModalEvents();
   if (state.modal.type === 'editStop') {
