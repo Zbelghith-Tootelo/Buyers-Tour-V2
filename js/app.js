@@ -286,20 +286,14 @@ function courtierPhoneFor(courtier) {
   const h = hashStr(courtier);
   return `(${514 + (h % 3) * 100}) ${100 + (h % 900)}-${1000 + ((h >>> 3) % 9000)}`;
 }
-function travelFor(a, b) { return 8 + (hashStr(a + '|' + b) % 13); }
 
 // A pause doesn't move you, so in geo mode a leg is measured from the last
 // property actually visited rather than from the pause sitting in between.
 function travelBetween(prev, cur, lastProperty) {
-  if (flag('geoOptimize')) {
-    if (cur.type === 'pause') return null;
-    const from = lastProperty || (prev.type === 'property' ? prev : null);
-    if (!from) return null;
-    return geoTravelMinutes(coordsFor(from), coordsFor(cur));
-  }
-  const prevKey = prev.type === 'pause' ? 'pause-' + prev.id : prev.address;
-  const curKey = cur.type === 'pause' ? 'pause-' + cur.id : cur.address;
-  return travelFor(prevKey, curKey);
+  if (cur.type === 'pause') return null;
+  const from = lastProperty || (prev.type === 'property' ? prev : null);
+  if (!from) return null;
+  return geoTravelMinutes(coordsFor(from), coordsFor(cur));
 }
 
 function formatKm(km) { return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`; }
@@ -474,15 +468,6 @@ const FEATURE_FLAGS = [
   { group: 'Sources de propriétés', id: 'customAddress', label: 'Adresse personnalisée', help: 'La recherche par adresse propose aussi les adresses hors catalogue, ajoutables directement. Désactivé, seules les fiches existantes remontent.', default: true, wired: true },
   { group: 'Sources de propriétés', id: 'propertyViaBrokerOnly', label: 'Propriété via courtier uniquement (TB)', help: 'Sur TB, une propriété ne peut être ajoutée qu\'après avoir sélectionné un courtier.', default: false, wired: false },
 
-  { group: 'Parcours', id: 'stagedFlow', label: 'Parcours en 4 étapes', help: 'Brouillon → validation des courtiers → confirmé → partagé, avec un statut de tour explicite. Désactivé, on retrouve les deux états d\'origine : envoyé ou non.', default: true, wired: true },
-  { group: 'Parcours', id: 'buyerAtEnd', label: 'Sélection du client à la fin', help: 'Le tour se construit sans acheteur ; le client est choisi une fois les visites confirmées. Désactivé, on choisit le client avant de composer le tour.', default: true, wired: true },
-  { group: 'Parcours', id: 'partialShare', label: 'Partage en confirmation partielle', help: 'Autorise le partage au client même si toutes les visites ne sont pas encore confirmées.', default: true, wired: true },
-  { group: 'Parcours', id: 'multishowing', label: 'Envoi groupé (Multishowing)', help: 'En attente de validation client — aligne le Buyer\'s Tour sur le comportement Multishowing.', default: false, wired: false },
-
-  { group: 'Optimisation et timing', id: 'geoOptimize', label: 'Optimisation géographique', help: 'Ordonne les arrêts du plus proche au plus loin et calcule les temps de trajet sur les distances réelles, au lieu du tri alphabétique.', default: true, wired: true },
-  { group: 'Optimisation et timing', id: 'timingHint', label: 'Rappel des paliers de 15 min', help: 'Notification bleue indiquant que le timing est personnalisable par paliers de 15 minutes.', default: false, wired: false },
-  { group: 'Optimisation et timing', id: 'insertFromBanner', label: 'Insérer depuis une notification', help: 'Le crayon d\'un bandeau de trajet ou d\'alerte insère une étape à cet endroit précis du tour : pause, arrêt personnalisé ou propriété. Désactivé, le crayon ouvre la modification de la visite suivante.', default: true, wired: true },
-
   { group: 'Démo', id: 'simulateConfirmation', label: 'Simuler la réponse des courtiers', help: 'Rend le statut de chaque visite cliquable pour basculer entre « À confirmer » et « Confirmée ». Outil de démo : en production, seul le courtier inscripteur confirme.', default: true, wired: true },
 ];
 
@@ -500,18 +485,8 @@ const PLATFORMS = [
 // encore construits : il documente la cible et s'appliquera tout seul au fur et
 // à mesure que les flags passent en `wired`.
 const PLATFORM_PRESETS = {
-  immocontact: {
-    mlsCart: false, customAddress: true, propertyViaBrokerOnly: false,
-    stagedFlow: true, buyerAtEnd: true, partialShare: true, multishowing: false,
-    geoOptimize: true, timingHint: true, insertFromBanner: true,
-    simulateConfirmation: true,
-  },
-  touchbase: {
-    mlsCart: true, customAddress: false, propertyViaBrokerOnly: true,
-    stagedFlow: true, buyerAtEnd: true, partialShare: true, multishowing: false,
-    geoOptimize: true, timingHint: true, insertFromBanner: true,
-    simulateConfirmation: true,
-  },
+  immocontact: { mlsCart: false, customAddress: true, propertyViaBrokerOnly: false, simulateConfirmation: true },
+  touchbase: { mlsCart: true, customAddress: false, propertyViaBrokerOnly: true, simulateConfirmation: true },
 };
 
 // Appliquer ne touche qu'aux flags branchés : les autres n'ont aucun
@@ -535,7 +510,7 @@ function currentPlatform() {
 // Saved values win over the defaults above, so bump the suffix whenever a
 // `default` changes — otherwise anyone who already toggled a flag keeps the old
 // default for the new one and never sees the feature.
-const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags-v3';
+const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags-v4';
 
 function loadFlags() {
   const flags = {};
@@ -690,17 +665,11 @@ function acceptProposedStart(stop) {
 function optimizeDraftStops() {
   const pauses = state.draft.stops.filter(s => s.type === 'pause');
   const props = state.draft.stops.filter(s => s.type === 'property');
-  let message;
-  if (flag('geoOptimize')) {
-    state.draft.stops = [...optimizeByGeography(props), ...pauses];
-    const shifted = reflowVisitTimes(state.draft);
-    const { km, min } = routeTotals(state.draft.stops);
-    message = `Tour optimisé : ${formatKm(km)} et ${formatMinutes(min)} de trajet.`
-      + (shifted ? ` ${shifted} heure${shifted > 1 ? 's' : ''} de visite ajustée${shifted > 1 ? 's' : ''}.` : '');
-  } else {
-    state.draft.stops = [...props.slice().sort((a, b) => a.address.localeCompare(b.address)), ...pauses];
-    message = 'Tour réordonné par ordre alphabétique d\'adresse.';
-  }
+  state.draft.stops = [...optimizeByGeography(props), ...pauses];
+  const shifted = reflowVisitTimes(state.draft);
+  const { km, min } = routeTotals(state.draft.stops);
+  const message = `Tour optimisé : ${formatKm(km)} et ${formatMinutes(min)} de trajet.`
+    + (shifted ? ` ${shifted} heure${shifted > 1 ? 's' : ''} de visite ajustée${shifted > 1 ? 's' : ''}.` : '');
   markDirtyIfSent();
   render();
   showToast(message, 'success');
@@ -786,7 +755,7 @@ function saveDraftToTour(notify, notifyBuyer = false) {
   );
 }
 
-// L'acheteur peut être choisi à la fin (flag buyerAtEnd) : le tour se construit
+// L'acheteur est choisi à la fin du parcours : le tour se construit
 // alors sans lui. Il garde quand même un cadre — la fenêtre de disponibilité —
 // sans quoi on demanderait des créneaux aux courtiers sans savoir dans quelle
 // plage on peut les accepter.
@@ -944,7 +913,7 @@ function renderListScreen() {
         const tally = validationTally(t);
         // Le badge dit où en est le tour ; la ligne du dessous dit ce qu'il
         // reste à faire, qui est l'information que le courtier cherche.
-        const detail = !flag('stagedFlow') ? '' : status === 'en_validation' && tally.toHandle
+        const detail = status === 'en_validation' && tally.toHandle
           ? `${tally.toHandle} réponse${tally.toHandle > 1 ? 's' : ''} à traiter`
           : status === 'en_validation'
             ? `${tally.confirmed}/${tally.total} confirmée${tally.confirmed > 1 ? 's' : ''}`
@@ -955,9 +924,7 @@ function renderListScreen() {
               ${tourIconSvg(status === 'confirme' || status === 'partage' ? 'confirmed' : 'pending')}
             </div>
             <div class="tour-card-body">
-              <p class="tour-card-name">${esc(b ? `${b.prenom} ${b.nom}` : 'Sans acheteur')} ${flag('stagedFlow')
-                ? `<span class="status-chip ${meta.tone}">${esc(meta.label)}</span>`
-                : (t.sentAt ? '' : '<span class="draft-chip">Non envoyé</span>')}</p>
+              <p class="tour-card-name">${esc(b ? `${b.prenom} ${b.nom}` : 'Sans acheteur')} <span class="status-chip ${meta.tone}">${esc(meta.label)}</span></p>
               <p class="tour-card-meta">Le tour commence à <strong>${t.time.replace(':', 'h')}</strong>${detail ? ` <span class="dot">•</span> ${detail}` : ''}</p>
             </div>
             <div class="tour-card-count">${propCount}</div>
@@ -1137,9 +1104,7 @@ function renderBuilderScreen() {
   };
   const status = tourStatus(liveTour);
   const tally = validationTally(liveTour);
-  const bannerEditTitle = flag('insertFromBanner')
-    ? 'Insérer une pause, un arrêt ou une propriété à cet endroit du tour'
-    : 'Modifier la visite suivante';
+  const bannerEditTitle = 'Insérer une pause, un arrêt ou une propriété à cet endroit du tour';
 
   const stopsHtml = draft.stops.length === 0 ? `
     <div class="empty-state" style="padding:36px 20px;">
@@ -1262,7 +1227,7 @@ function renderBuilderScreen() {
       <span class="banner-text"><strong>Attention :</strong> le tour se termine à ${minutesToLabel(endMin)}, après la fin de disponibilité de ${minutesToLabel(windowMin)}.</span>
     </div>`;
 
-  const validationPanel = !flag('stagedFlow') || (status !== 'en_validation' && status !== 'confirme') ? '' : `
+  const validationPanel = status !== 'en_validation' && status !== 'confirme' ? '' : `
     <div class="validation-panel ${status}">
       <div class="validation-counts">
         <span class="vcount ok">${tally.confirmed} confirmée${tally.confirmed > 1 ? 's' : ''}</span>
@@ -1319,7 +1284,6 @@ function renderBuilderScreen() {
 // Une seule action primaire par statut : c'est le statut qui dit quoi faire
 // ensuite, pas l'utilisateur qui doit le déduire de trois boutons de même poids.
 function renderFooterActions(propertyCount, status, tally) {
-  if (!flag('stagedFlow')) return renderLegacyFooterActions(propertyCount);
   const del = `<button class="btn btn-danger-outline" id="btn-delete-tour">${status === 'brouillon'
     ? 'Supprimer' : 'Supprimer ce tour et annuler les demandes de visites'}</button>`;
   // Le partage se fait sur l'écran de choix du client : ici on ne fait que s'y
@@ -1365,39 +1329,9 @@ function renderFooterActions(propertyCount, status, tally) {
   // que de laisser un bouton grisé sans explication.
   const remaining = tally.waiting + tally.toHandle;
   return `
-    ${flag('partialShare')
-      ? `<button class="btn btn-primary" id="btn-share-buyer">${shareLabel} (${tally.confirmed}/${tally.total})</button>`
-      : `<button class="btn btn-primary" disabled>${shareLabel}</button>
-         <p class="footer-note">${remaining} visite${remaining > 1 ? 's' : ''} sans confirmation. Le partage s'ouvrira quand toutes les visites seront confirmées.</p>`}
+    <button class="btn btn-primary" id="btn-share-buyer">${shareLabel} (${tally.confirmed}/${tally.total})</button>
     ${remaining ? `<button class="btn btn-outline" id="btn-relance">Relancer les courtiers</button>` : ''}
     ${del}
-  `;
-}
-
-// Comportement d'origine, conservé tant que le parcours en 4 étapes n'est pas
-// validé par le client : deux états seulement, envoyé ou non.
-function renderLegacyFooterActions(propertyCount) {
-  const tour = currentTour();
-  const isSent = !!(tour && tour.sentAt);
-  if (isSent && state.dirty) {
-    return `
-      <button class="btn btn-primary" id="btn-save-update">Envoyer une mise à jour</button>
-      <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
-      <button class="btn btn-danger-outline" id="btn-delete-tour">Supprimer ce tour et annuler les demandes de visites</button>
-    `;
-  }
-  if (isSent) {
-    return `
-      <button class="btn btn-primary" id="btn-share-buyer">Partager avec l'acheteur</button>
-      <button class="btn btn-danger-outline" id="btn-delete-tour">Supprimer ce tour et annuler les demandes de visites</button>
-    `;
-  }
-  return `
-    <button class="btn btn-primary" id="btn-send-tour" ${propertyCount === 0 ? 'disabled' : ''}>
-      Envoyer les demandes de visites
-    </button>
-    <button class="btn btn-outline" id="btn-save-draft" ${propertyCount === 0 ? 'disabled' : ''}>Enregistrer</button>
-    <button class="btn btn-danger-outline" id="btn-delete-tour">Supprimer</button>
   `;
 }
 
@@ -1925,7 +1859,7 @@ function renderMapScreen() {
 
   return `
     <div id="leaflet-map" class="tour-map"></div>
-    ${canOptimize && flag('geoOptimize') ? `
+    ${canOptimize ? `
       <div class="route-summary">
         <span class="route-summary-item"><strong>${totals.count}</strong> arrêts</span>
         <span class="route-summary-sep"></span>
@@ -1938,11 +1872,8 @@ function renderMapScreen() {
     ` : ''}
 
     <button class="btn btn-outline btn-block" id="btn-optimize-map" style="margin-top:16px;" ${canOptimize ? '' : 'disabled'}>
-      ${flag('geoOptimize') ? 'Optimiser par distance' : 'Optimiser le tour'}
+      Optimiser par distance
     </button>
-    ${canOptimize && !flag('geoOptimize') ? `
-      <p class="helper-text" style="margin-top:8px;">L'optimisation trie par ordre alphabétique d'adresse. Activez « Optimisation géographique » dans les flags pour ordonner du plus proche au plus loin.</p>
-    ` : ''}
 
     <p class="section-label" style="margin-top:20px;">Réordonner les arrêts :</p>
     <div>${stopsHtml}</div>`;
@@ -2182,10 +2113,10 @@ function bindListEvents() {
     state.editingTourId = null;
     state.dirty = false;
     state.contactPurpose = 'create';
-    // Avec buyerAtEnd, le tour se construit d'abord ; le client est choisi une
-    // fois les visites confirmées, à l'étape 4.
-    if (flag('buyerAtEnd')) { state.draft = newDraft(null); state.screen = 'builder'; }
-    else { state.screen = 'contact'; }
+    // Le tour se construit d'abord ; le client est choisi une fois les visites
+    // confirmées, à l'étape 4.
+    state.draft = newDraft(null);
+    state.screen = 'builder';
     render();
   };
 }
@@ -2360,13 +2291,10 @@ function bindBuilderEvents() {
   });
   // Le crayon d'un bandeau porte sur l'intervalle entre deux visites, pas sur la
   // visite elle-même : il ouvre « Ajouter une destination » ancré à cet endroit,
-  // pour y glisser une pause, un arrêt personnalisé ou une propriété. Sans le
-  // flag, on garde l'ancien raccourci vers la modification de la visite suivante.
+  // pour y glisser une pause, un arrêt personnalisé ou une propriété.
   document.querySelectorAll('.banner-edit-btn[data-edit-stop]').forEach(el => {
     el.onclick = () => {
-      const stopId = el.getAttribute('data-edit-stop');
-      if (!flag('insertFromBanner')) { state.modal = { type: 'editStop', stopId }; render(); return; }
-      state.insertBeforeId = stopId;
+      state.insertBeforeId = el.getAttribute('data-edit-stop');
       state.modal = { type: 'destination', initialStops: state.draft.stops.length };
       // Le bandeau parle de temps de trajet : la pause est l'insertion la plus
       // probable à cet endroit. Les autres onglets restent à un clic.
@@ -2612,7 +2540,6 @@ function buildTourMap() {
     // readable straight off the map rather than only in the list below. Only in
     // geo mode: otherwise the schedule uses mock times and the map would
     // contradict the travel chips in the list.
-    if (!flag('geoOptimize')) continue;
     // Sit the label on the route itself: with road geometry the midpoint of the
     // straight line often falls nowhere near the path actually driven.
     const path = legPath(i);
