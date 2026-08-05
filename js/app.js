@@ -314,6 +314,25 @@ function makePause(duration = 30) {
   return { id: uid(), type: 'pause', duration };
 }
 
+// « Ajouter une destination » ajoute à la fin du tour. Ouvert depuis le crayon
+// d'un bandeau, le même formulaire doit insérer l'étape à cet endroit précis :
+// state.insertBeforeId porte l'ancre, vidée à la fermeture du modal.
+function insertAnchor() {
+  if (!state.insertBeforeId) return null;
+  return state.draft.stops.find(s => s.id === state.insertBeforeId) || null;
+}
+function addStopToDraft(stop) {
+  const at = state.insertBeforeId ? state.draft.stops.findIndex(s => s.id === state.insertBeforeId) : -1;
+  if (at < 0) { state.draft.stops.push(stop); return null; }
+  state.draft.stops.splice(at, 0, stop);
+  return state.draft.stops[at + 1];
+}
+function stopShortLabel(stop) {
+  if (!stop) return '';
+  if (stop.type === 'pause') return `la pause de ${stop.duration} min`;
+  return stop.address.split(',')[0];
+}
+
 function seedTours() {
   return [
     {
@@ -388,14 +407,17 @@ const FEATURE_FLAGS = [
 
   { group: 'Optimisation et timing', id: 'geoOptimize', label: 'Optimisation géographique', help: 'Ordonne les arrêts du plus proche au plus loin et calcule les temps de trajet sur les distances réelles, au lieu du tri alphabétique.', default: true, wired: true },
   { group: 'Optimisation et timing', id: 'timingHint', label: 'Rappel des paliers de 15 min', help: 'Notification bleue indiquant que le timing est personnalisable par paliers de 15 minutes.', default: false, wired: false },
-  { group: 'Optimisation et timing', id: 'insertFromBanner', label: 'Insérer depuis une notification', help: 'Le crayon d\'un bandeau de trajet permet d\'insérer une pause ou un arrêt personnalisé.', default: false, wired: false },
+  { group: 'Optimisation et timing', id: 'insertFromBanner', label: 'Insérer depuis une notification', help: 'Le crayon d\'un bandeau de trajet ou d\'alerte insère une étape à cet endroit précis du tour : pause, arrêt personnalisé ou propriété. Désactivé, le crayon ouvre la modification de la visite suivante.', default: true, wired: true },
 
   { group: 'Intégrations', id: 'calendarSync', label: 'Synchroniser avec mon calendrier', help: 'Bouton d\'export vers Google Agenda. Retiré à la demande des clients.', default: false, wired: true },
 
   { group: 'Démo', id: 'simulateConfirmation', label: 'Simuler la réponse des courtiers', help: 'Rend le statut de chaque visite cliquable pour basculer entre « À confirmer » et « Confirmée ». Outil de démo : en production, seul le courtier inscripteur confirme.', default: true, wired: true },
 ];
 
-const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags';
+// Saved values win over the defaults above, so bump the suffix whenever a
+// `default` changes — otherwise anyone who already toggled a flag keeps the old
+// default for the new one and never sees the feature.
+const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags-v2';
 
 function loadFlags() {
   const flags = {};
@@ -430,6 +452,7 @@ const state = {
   destModalTab: 'nom',
   destModalSearch: '',
   destModalPrefillAddress: '',
+  insertBeforeId: null,     // id de l'étape avant laquelle insérer la prochaine destination
   dragStopId: null,
   dirty: false,             // unsaved edits on a tour that was already sent
   reportStopId: null,       // stop being reported on while state.screen === 'report'
@@ -836,6 +859,9 @@ function renderBuilderScreen() {
   const buyer = draft.buyer;
   const rows = computeSchedule(draft);
   const propertyCount = draft.stops.filter(s => s.type === 'property').length;
+  const bannerEditTitle = flag('insertFromBanner')
+    ? 'Insérer une pause, un arrêt ou une propriété à cet endroit du tour'
+    : 'Modifier la visite suivante';
 
   const stopsHtml = draft.stops.length === 0 ? `
     <div class="empty-state" style="padding:36px 20px;">
@@ -849,7 +875,7 @@ function renderBuilderScreen() {
       const label = nextIsPause ? `Trajet estimé : ${travelBefore} min avant la pause` : `Trajet estimé : ${travelBefore} min`;
       travelHtml = `
         <div class="travel-chip">${icon('car')} <span class="banner-text">${label}</span>
-          <span class="banner-edit"><button class="banner-edit-btn" data-edit-stop="${stop.id}">${icon('pencil')}</button></span>
+          <span class="banner-edit"><button class="banner-edit-btn" data-edit-stop="${stop.id}" title="${bannerEditTitle}">${icon('pencil')}</button></span>
         </div>`;
     }
     let conflictHtml = '';
@@ -859,7 +885,7 @@ function renderBuilderScreen() {
         : `<strong>Attention :</strong> arrivée prévue à ${minutesToLabel(conflict.arrival)}, après l'heure confirmée de ${minutesToLabel(conflict.confirmed)}.`;
       conflictHtml = `
         <div class="alert-banner warning">${icon('warning')} <span class="banner-text">${text}</span>
-          <span class="banner-edit"><button class="banner-edit-btn" data-edit-stop="${stop.id}">${icon('pencil')}</button></span>
+          <span class="banner-edit"><button class="banner-edit-btn" data-edit-stop="${stop.id}" title="${bannerEditTitle}">${icon('pencil')}</button></span>
         </div>`;
     }
 
@@ -1327,10 +1353,24 @@ function renderDestinationModal() {
     `;
   }
 
+  // Insertion depuis un bandeau : on annonce le point d'insertion et on laisse
+  // une sortie vers la modification de la visite suivante, qui était l'ancien
+  // comportement du crayon (Nielsen #3 — contrôle et liberté).
+  const anchor = insertAnchor();
+  const insertHint = !anchor ? '' : `
+    <div class="insert-hint">${icon('info')}
+      <span>La nouvelle étape sera insérée <strong>avant</strong> ${esc(stopShortLabel(anchor))}.</span>
+    </div>
+    ${anchor.type === 'property' ? `
+      <div class="info-banner clickable" data-edit-anchor style="margin-bottom:12px;">${icon('pencil')}
+        <span>Modifier plutôt l'heure de cette visite.</span>
+      </div>` : ''}
+  `;
+
   return `
     <div class="modal-overlay" id="modal-overlay">
       <div class="modal">
-        <div class="modal-head"><h2>Recherche par :</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
+        <div class="modal-head"><h2>${anchor ? 'Insérer une étape' : 'Recherche par :'}</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
         <div class="modal-body">
           <div class="dest-tabs">
             ${tabs.map(t => `
@@ -1339,6 +1379,7 @@ function renderDestinationModal() {
                 ${t.id === 'cart' && mlsCart.length ? `<span class="tab-badge">${mlsCart.length}</span>` : ''}
               </div>`).join('')}
           </div>
+          ${insertHint}
           ${body}
         </div>
         <div class="modal-footer">
@@ -1796,10 +1837,23 @@ function bindBuilderEvents() {
       render();
     };
   });
-  // Travel-time and conflict-warning banners keep the original quick edit
-  // (status/duration), used to free up more margin for travel between stops.
+  // Le crayon d'un bandeau porte sur l'intervalle entre deux visites, pas sur la
+  // visite elle-même : il ouvre « Ajouter une destination » ancré à cet endroit,
+  // pour y glisser une pause, un arrêt personnalisé ou une propriété. Sans le
+  // flag, on garde l'ancien raccourci vers la modification de la visite suivante.
   document.querySelectorAll('.banner-edit-btn[data-edit-stop]').forEach(el => {
-    el.onclick = () => { state.modal = { type: 'editStop', stopId: el.getAttribute('data-edit-stop') }; render(); };
+    el.onclick = () => {
+      const stopId = el.getAttribute('data-edit-stop');
+      if (!flag('insertFromBanner')) { state.modal = { type: 'editStop', stopId }; render(); return; }
+      state.insertBeforeId = stopId;
+      state.modal = { type: 'destination', initialStops: state.draft.stops.length };
+      // Le bandeau parle de temps de trajet : la pause est l'insertion la plus
+      // probable à cet endroit. Les autres onglets restent à un clic.
+      state.destModalTab = 'pause';
+      state.destModalSearch = '';
+      state.destModalPrefillAddress = '';
+      render();
+    };
   });
   document.querySelectorAll('[data-edit-pause]').forEach(el => {
     el.onclick = () => { state.modal = { type: 'editStop', stopId: el.getAttribute('data-edit-pause') }; render(); };
@@ -2089,7 +2143,7 @@ function bindDragAndDrop() {
 
 /* ----- Modal events ----- */
 
-function closeModal() { state.modal = null; render(); }
+function closeModal() { state.modal = null; state.insertBeforeId = null; render(); }
 
 function bindModalEvents() {
   const overlay = document.getElementById('modal-overlay');
@@ -2261,14 +2315,18 @@ function bindVisitRequestModalEvents() {
     stop.duration = m.duration;
     stop.comment = m.comment;
     stop.callback = m.callback;
-    if (!m.editStopId) state.draft.stops.push(stop);
+    const insertedBefore = m.editStopId ? null : addStopToDraft(stop);
     if (m.date !== state.draft.date && state.draft.stops.filter(s => s.type === 'property').length === 1) {
       state.draft.date = m.date;
     }
     markDirtyIfSent();
     state.modal = m.prevDestModal;
     render();
-    showToast(m.editStopId ? 'La demande de visite a été mise à jour.' : 'La propriété a été ajoutée avec succès.', 'success');
+    showToast(m.editStopId
+      ? 'La demande de visite a été mise à jour.'
+      : insertedBefore
+        ? `Propriété insérée avant ${stopShortLabel(insertedBefore)}.`
+        : 'La propriété a été ajoutée avec succès.', 'success');
   };
 }
 
@@ -2302,9 +2360,13 @@ function bindDestinationModalEvents() {
       if (!prop) return;
       // Adding a property goes through the "Demande de visite" step where the
       // tour creator picks the visit time before the request goes to the broker.
+      // L'heure proposée suit l'étape qui précède le point d'insertion : la
+      // dernière du tour en ajout normal, celle d'avant l'ancre en insertion.
+      const anchor = insertAnchor();
+      const anchorIdx = anchor ? state.draft.stops.indexOf(anchor) : state.draft.stops.length;
       const rows = computeSchedule(state.draft);
-      const lastProp = rows.filter(r => r.stop.type === 'property').pop();
-      const defaultStart = Math.min(lastProp ? lastProp.start + lastProp.stop.duration + 15 : timeToMinutes(state.draft.time), 20 * 60);
+      const prevProp = rows.filter(r => r.stop.type === 'property' && state.draft.stops.indexOf(r.stop) < anchorIdx).pop();
+      const defaultStart = Math.min(prevProp ? prevProp.start + prevProp.stop.duration + 15 : timeToMinutes(state.draft.time), 20 * 60);
       state.modal = {
         type: 'visitRequest',
         mls: prop.mls,
@@ -2319,21 +2381,30 @@ function bindDestinationModalEvents() {
       render();
     };
   });
+  const editAnchor = document.querySelector('[data-edit-anchor]');
+  if (editAnchor) editAnchor.onclick = () => {
+    const stopId = state.insertBeforeId;
+    state.insertBeforeId = null;
+    state.modal = { type: 'editStop', stopId };
+    render();
+  };
   const addCustom = document.getElementById('btn-add-custom-stop');
   if (addCustom) addCustom.onclick = () => {
     const name = document.getElementById('stop-name').value.trim();
     const address = document.getElementById('stop-address').value.trim();
     if (!address) return;
-    state.draft.stops.push({ id: uid(), type: 'property', address: name ? `${name} — ${address}` : address, mls: null, status: 'pending', duration: 20, locked: false, visited: false });
+    const inserted = addStopToDraft({ id: uid(), type: 'property', address: name ? `${name} — ${address}` : address, mls: null, status: 'pending', duration: 20, locked: false, visited: false });
     markDirtyIfSent();
     closeModal();
+    if (inserted) showToast(`Arrêt inséré avant ${stopShortLabel(inserted)}.`, 'success');
   };
   const addPause = document.getElementById('btn-add-pause');
   if (addPause) addPause.onclick = () => {
     const duration = +document.getElementById('pause-duration').value;
-    state.draft.stops.push(makePause(duration));
+    const inserted = addStopToDraft(makePause(duration));
     markDirtyIfSent();
     closeModal();
+    if (inserted) showToast(`Pause de ${duration} min insérée avant ${stopShortLabel(inserted)}.`, 'success');
   };
 }
 
