@@ -136,11 +136,11 @@ const MLS_POOL = [
   { mls: '18234671', address: '500 Rue d\'Avaugour, Boucherville, QC J4B 5E7', lat: 45.5906, lng: -73.4364 },
   { mls: '18234733', address: '123 Avenue des Étoiles, Montréal, QC H3C 1A2', lat: 45.4720, lng: -73.5560 },
   { mls: '18234845', address: '456 Boulevard de la Liberté, Québec, QC G1V 2M2', lat: 46.7700, lng: -71.2800 },
-  { mls: '18234902', address: '789 Chemin du Bonheur, Gatineau, QC J8X 3G5', lat: 45.4300, lng: -75.7200 },
+  { mls: '18234902', address: '789 Chemin du Bonheur, Gatineau, QC J8X 3G5', lat: 45.4300, lng: -75.7200, inactive: true },
   { mls: '18235011', address: '567 Boulevard des Oranges, Lévis, QC G6V 4T4', lat: 46.8033, lng: -71.1779 },
   { mls: '18235078', address: '567 Boulevard des Citrons, Boucherville, QC J4B 7K1', lat: 45.6050, lng: -73.4180 },
   { mls: '18235144', address: '567 Boulevard des Oliviers, Longueuil, QC J4K 2M9', lat: 45.5312, lng: -73.5182 },
-  { mls: '18235201', address: '567 Boulevard des Jardins, Lévis, QC G6V 5R3', lat: 46.7900, lng: -71.1600 },
+  { mls: '18235201', address: '567 Boulevard des Jardins, Lévis, QC G6V 5R3', lat: 46.7900, lng: -71.1600, inactive: true },
   { mls: '18235356', address: '32 Rue Principale, Saint-Lambert, QC J4R 1H4', lat: 45.4990, lng: -73.5090 },
   { mls: '18235410', address: '88 Rue des Érables, Longueuil, QC J4K 3C7', lat: 45.5210, lng: -73.4980 },
   { mls: '18235477', address: '145 Rue Sainte-Catherine, Montréal, QC H2X 1K8', lat: 45.5088, lng: -73.5617 },
@@ -148,6 +148,30 @@ const MLS_POOL = [
   { mls: '18235589', address: '210 Boulevard Saint-Martin, Laval, QC H7M 1Y8', lat: 45.5750, lng: -73.7100 },
   { mls: '18235634', address: '44 Rue du Parc, Brossard, QC J4W 2K3', lat: 45.4510, lng: -73.4650 },
 ];
+
+// Sur ImmoContact, une adresse absente du catalogue reste visitable : le
+// courtier la saisit et la demande part par courriel. Ce jeu de rues simule ce
+// que renverrait un service d'adresses — le prototype n'en appelle aucun, mais
+// le parcours doit pouvoir se jouer sur n'importe quelle recherche.
+const SUGGESTION_STREETS = [
+  'Boulevard des Ormes, Lévis, QC G6V 4T4',
+  'Boulevard des Cerisiers, Boucherville, QC J4B 7K1',
+  'Avenue des Peupliers, Longueuil, QC J4K 2M9',
+  'Rue des Tilleuls, Laval, QC H7M 1Y8',
+  'Chemin des Bouleaux, Brossard, QC J4W 2K3',
+];
+
+// Renvoie des adresses proches de la saisie et absentes du catalogue. Sans
+// numéro civique il n'y a rien à proposer : une rue seule n'est pas une adresse.
+function addressSuggestions(q) {
+  const num = (q.match(/\d{1,5}/) || [])[0];
+  if (!num) return [];
+  const known = new Set(MLS_POOL.map(p => p.address.toLowerCase()));
+  return SUGGESTION_STREETS
+    .map(street => ({ id: 'sug-' + num + '-' + hashStr(street), address: `${num} ${street}` }))
+    .filter(sug => !known.has(sug.address.toLowerCase()))
+    .slice(0, 4);
+}
 
 // Greater Montréal bounds, used to place custom stops that have no MLS listing.
 function coordsFor(stop) {
@@ -447,7 +471,7 @@ function seedTours() {
 // the panel lists it as "à venir" rather than offering a toggle that does nothing.
 const FEATURE_FLAGS = [
   { group: 'Sources de propriétés', id: 'mlsCart', label: 'Panier et recherche MLS', help: 'Onglets Panier et MLS dans « Ajouter une destination ». Désactivé, on obtient le comportement ImmoContact, sans catalogue MLS.', default: false, wired: true },
-  { group: 'Sources de propriétés', id: 'customAddress', label: 'Adresse personnalisée', help: 'Ajouter un arrêt à une adresse libre, hors MLS.', default: true, wired: false },
+  { group: 'Sources de propriétés', id: 'customAddress', label: 'Adresse personnalisée', help: 'La recherche par adresse propose aussi les adresses hors catalogue, ajoutables directement. Désactivé, seules les fiches existantes remontent.', default: true, wired: true },
   { group: 'Sources de propriétés', id: 'propertyViaBrokerOnly', label: 'Propriété via courtier uniquement (TB)', help: 'Sur TB, une propriété ne peut être ajoutée qu\'après avoir sélectionné un courtier.', default: false, wired: false },
 
   { group: 'Parcours', id: 'stagedFlow', label: 'Parcours en 4 étapes', help: 'Brouillon → validation des courtiers → confirmé → partagé, avec un statut de tour explicite. Désactivé, on retrouve les deux états d\'origine : envoyé ou non.', default: true, wired: true },
@@ -1726,22 +1750,38 @@ function renderDestinationModal() {
         return courtierFor(p.mls).toLowerCase().includes(q);
       }).slice(0, 8);
     }
+    // Recherche par adresse sur ImmoContact : le catalogue n'est pas la seule
+    // source. Ce qui s'y trouve se sélectionne, le reste s'ajoute — les deux
+    // groupes le disent, plutôt que de laisser croire à une liste vide.
+    const suggestions = tab === 'adresse' && q && flag('customAddress') ? addressSuggestions(q) : [];
+    const grouped = tab === 'adresse' && flag('customAddress');
+    const listHtml = !q ? '' : grouped ? `
+      ${results.length ? `
+        <p class="result-group">Propriétés Immocontact</p>
+        ${results.map(p => resultRow(p, addedMls)).join('')}` : ''}
+      ${suggestions.length ? `
+        <p class="result-group">Propriétés à ajouter</p>
+        ${suggestions.map(sug => suggestionRow(sug)).join('')}` : ''}
+      ${!results.length && !suggestions.length ? `
+        <p class="dest-empty">Aucun résultat, veuillez raffiner votre recherche ou ajouter une nouvelle adresse.</p>
+        <button class="btn btn-primary btn-block" data-goto-arret style="margin-top:14px;">${icon('plus')} Ajouter une nouvelle adresse</button>` : ''}
+    ` : `
+      ${results.map(p => resultRow(p, addedMls)).join('') || `
+        <p class="helper-text" style="margin-top:14px;">Aucun résultat.</p>
+        ${tab === 'adresse' ? `
+          <div class="info-banner clickable" data-goto-arret style="margin-top:10px;">${icon('plus')} <span>Adresse introuvable ? L'ajouter comme arrêt personnalisé.</span></div>
+        ` : tab === 'mls' ? `
+          <div class="info-banner clickable" data-goto-arret style="margin-top:10px;">${icon('plus')} <span>Numéro MLS introuvable ? Ajouter l'adresse manuellement.</span></div>
+        ` : ''}`}
+    `;
+
     body = `
       <div class="search-bar" style="margin-bottom:14px;">
         <input type="text" class="input" id="dest-search" placeholder="${placeholder}" value="${esc(state.destModalSearch)}">
         ${icon('search')}
       </div>
       <div class="info-banner">${icon('info')} <span>Cliquez sur un résultat pour l'ajouter directement au tour.</span></div>
-      <div style="margin-top:10px;">
-        ${results.map(p => resultRow(p, addedMls)).join('') || (q ? `
-          <p class="helper-text" style="margin-top:14px;">Aucun résultat.</p>
-          ${tab === 'adresse' ? `
-            <div class="info-banner clickable" data-goto-arret style="margin-top:10px;">${icon('plus')} <span>Adresse introuvable ? L'ajouter comme arrêt personnalisé.</span></div>
-          ` : tab === 'mls' ? `
-            <div class="info-banner clickable" data-goto-arret style="margin-top:10px;">${icon('plus')} <span>Numéro MLS introuvable ? Ajouter l'adresse manuellement.</span></div>
-          ` : ''}
-        ` : '')}
-      </div>
+      <div style="margin-top:10px;">${listHtml}</div>
     `;
   } else if (tab === 'cart') {
     body = `
@@ -1815,6 +1855,15 @@ function renderDestinationModal() {
 
 function resultRow(p, addedMls) {
   const already = addedMls.has(p.mls);
+  // Une inscription retirée du marché reste visible — sinon le courtier la
+  // cherche sans comprendre pourquoi elle a disparu — mais ne s'ajoute pas.
+  if (p.inactive) {
+    return `
+      <div class="result-row is-inactive" title="Cette inscription n'est plus active. Elle ne peut pas être ajoutée à un tour.">
+        <img class="result-thumb" src="${thumbFor(p.mls, p.address)}" alt="">
+        <div class="result-address">${esc(p.address)} <span class="result-inactive-tag">(inactive)</span></div>
+      </div>`;
+  }
   // The whole row is the click target and toggles the selection:
   // one click adds the property to the tour, a second click removes it.
   return `
@@ -1825,6 +1874,19 @@ function resultRow(p, addedMls) {
       <span class="result-add-btn ${already ? 'added' : ''}">
         ${icon(already ? 'check' : 'plus')}
       </span>
+    </div>`;
+}
+
+// Adresse hors catalogue : pas de fiche, donc pas de vignette ni de courtier
+// inscripteur connu. Le « + » ajoute directement, là où le chevron d'une fiche
+// mène au formulaire de demande de visite.
+function suggestionRow(sug) {
+  const already = state.draft.stops.some(st => st.address === sug.address);
+  return `
+    <div class="result-row is-suggestion ${already ? 'is-added' : ''}" ${already ? '' : `data-add-address="${esc(sug.address)}"`}>
+      <span class="result-pin">${icon('mapPinOutline')}</span>
+      <div class="result-address">${esc(sug.address)}</div>
+      <span class="result-add-btn ${already ? 'added' : ''}">${icon(already ? 'check' : 'plus')}</span>
     </div>`;
 }
 
@@ -2869,6 +2931,20 @@ function bindVisitRequestModalEvents() {
 function bindDestinationModalEvents() {
   document.querySelectorAll('[data-dest-tab]').forEach(el => {
     el.onclick = () => { state.destModalTab = el.getAttribute('data-dest-tab'); state.destModalSearch = ''; state.destModalPrefillAddress = ''; render(); };
+  });
+  document.querySelectorAll('[data-add-address]').forEach(el => {
+    el.onclick = () => {
+      const address = el.getAttribute('data-add-address');
+      const inserted = addStopToDraft({
+        id: uid(), type: 'property', address, mls: null, status: 'pending',
+        duration: 30, locked: false, visited: false, external: true,
+      });
+      markDirtyIfSent();
+      render();
+      showToast(inserted
+        ? `${address.split(',')[0]} inséré avant ${stopShortLabel(inserted)}.`
+        : `${address.split(',')[0]} ajouté au tour. La demande partira par courriel.`, 'success');
+    };
   });
   const gotoArret = document.querySelector('[data-goto-arret]');
   if (gotoArret) gotoArret.onclick = () => {

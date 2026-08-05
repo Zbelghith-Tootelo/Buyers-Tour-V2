@@ -667,6 +667,32 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 .result-add-btn svg { width: 15px; height: 15px; }
 .result-add-btn.added { background: var(--succes); border-color: var(--succes); color: var(--blanc); }
 
+/* Séparateur de groupe de résultats : les traits de part et d'autre disent que
+   la liste change de nature, pas seulement de rubrique. */
+.result-group {
+  display: flex; align-items: center; gap: 10px;
+  margin: 18px 0 2px; font-size: 13px; font-weight: 700; color: var(--bleu-principal);
+}
+.result-group::before, .result-group::after { content: ''; flex: 1; height: 1px; background: var(--bordures); }
+.result-group:first-child { margin-top: 4px; }
+
+/* Adresse hors catalogue : pas de fiche, donc une épingle à la place de la
+   vignette — la différence se voit avant même de lire. */
+.result-pin {
+  width: 77px; height: 50px; border-radius: var(--radius-lg); flex-shrink: 0;
+  background: var(--lumiere-principale); color: var(--bleu-secondaire);
+  display: flex; align-items: center; justify-content: center;
+}
+.result-pin svg { width: 20px; height: 20px; }
+
+/* Inscription retirée du marché : visible, expliquée, non cliquable. */
+.result-row.is-inactive { cursor: not-allowed; color: var(--rouge-principal); }
+.result-row.is-inactive:hover { background: none; margin: 0; padding: 12px 4px; }
+.result-row.is-inactive .result-thumb { filter: grayscale(1); opacity: 0.55; }
+.result-inactive-tag { font-weight: 700; }
+
+.dest-empty { margin: 14px 0 0; font-size: 14px; line-height: 1.5; color: var(--rouge-principal); }
+
 .pause-option { display: flex; align-items: center; justify-content: space-between; padding: 14px; border: 1px solid var(--bordures); border-radius: var(--radius-lg); margin-bottom: 10px; }
 .pause-option .field { margin: 0; flex: 1; max-width: 160px; }
 
@@ -941,6 +967,6 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
   .modal-body { padding: 12px 16px 16px; }
   .modal-footer { padding: 0 16px 16px; }
   .dest-tab { flex-direction: column; gap: 3px; padding: 8px 9px; font-size: 12px; flex: 1; align-items: center; }
-  .result-thumb { width: 56px; height: 40px; }
+  .result-thumb, .result-pin { width: 56px; height: 40px; }
   .result-address { font-size: 13.5px; }
 }
