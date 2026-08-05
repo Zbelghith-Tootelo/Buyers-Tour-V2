@@ -435,24 +435,6 @@ function seedTours() {
         makeStop('32 Rue Principale, Saint-Lambert, QC J4R 1H4', '18235356', { status: 'confirmed', lockedStart: '17:00' }),
       ],
     },
-    {
-      id: 't5', buyerId: 'b4', date: '2026-07-13', time: '13:45', sentAt: Date.now() - 60000,
-      stops: [
-        makeStop('88 Rue des Érables, Longueuil, QC J4K 3C7', '18235410', { status: 'confirmed', lockedStart: '13:45' }),
-        makeStop('500 Rue D\'Iberville, Montréal, QC H2H 2S6', '18234567', { status: 'pending' }),
-        makePause(15),
-        makeStop('515 Boul. Lacombe, Repentigny, QC J6A 1E5', '18234599', { status: 'pending' }),
-        makeStop('214 Rue des Oranges, Montréal, QC H2H 2S6', '18234612', { status: 'confirmed', lockedStart: '16:30' }),
-      ],
-    },
-    {
-      // Brouillon : aucune demande n'est partie, rien n'est donc confirmé.
-      id: 't6', buyerId: 'b5', date: '2026-07-13', time: '17:15', sentAt: null,
-      stops: [
-        makeStop('500 Rue d\'Avaugour, Boucherville, QC J4B 5E7', '18234671', { status: 'pending' }),
-        makeStop('123 Avenue des Étoiles, Montréal, QC H3C 1A2', '18234733', { status: 'pending' }),
-      ],
-    },
   ];
 }
 
