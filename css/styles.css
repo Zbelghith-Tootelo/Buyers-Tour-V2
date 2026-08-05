@@ -514,7 +514,6 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 
 .readonly-chip { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 14px; border: 1px solid var(--bordures); border-radius: var(--radius-lg); background: var(--blanc); font-weight: 600; color: var(--bleu-secondaire); cursor: pointer; }
 .readonly-chip svg { width: 16px; height: 16px; color: var(--texte-secondaire); }
-.readonly-chip.is-muted { color: var(--texte-secondaire); font-weight: 500; font-style: italic; background: var(--neutre-surface); }
 
 .action-row { display: flex; gap: 12px; margin: 22px 0 20px; flex-wrap: wrap; }
 .action-row .btn { flex: 1; min-width: 200px; }

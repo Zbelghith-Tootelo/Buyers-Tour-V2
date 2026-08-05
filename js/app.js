@@ -1182,20 +1182,13 @@ function renderBuilderScreen() {
     return travelHtml + card + answerHtml + conflictHtml;
   }).join('');
 
-  // L'acheteur peut arriver en fin de parcours : tant qu'il n'est pas choisi, on
-  // dit explicitement pourquoi le champ est vide plutôt que de le masquer.
-  const buyerField = buyer ? `
+  // L'acheteur n'apparaît qu'une fois choisi, à la fin du parcours : pendant la
+  // composition du tour, un champ vide n'aurait rien à dire.
+  const buyerField = !buyer ? '' : `
     <div class="field">
       <label class="field-label">Nom de l'acheteur</label>
       <div class="readonly-chip" id="btn-change-buyer">
         ${esc(buyer.prenom + ' ' + buyer.nom)}
-        ${icon('chevronRight')}
-      </div>
-    </div>` : `
-    <div class="field">
-      <label class="field-label">Acheteur</label>
-      <div class="readonly-chip is-muted" id="btn-pick-buyer">
-        <span>Choisi une fois les visites confirmées</span>
         ${icon('chevronRight')}
       </div>
     </div>`;
@@ -2364,8 +2357,6 @@ function bindBuilderEvents() {
   };
   const shareBtn = document.getElementById('btn-share-buyer');
   if (shareBtn) shareBtn.onclick = goToShare;
-  const pickBuyer = document.getElementById('btn-pick-buyer');
-  if (pickBuyer) pickBuyer.onclick = goToShare;
 
 
   const saveDraftBtn = document.getElementById('btn-save-draft');
