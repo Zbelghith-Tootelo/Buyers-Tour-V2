@@ -2082,8 +2082,8 @@ function renderMapScreen() {
         <span class="route-summary-item"><strong>${formatKm(totals.km)}</strong> de trajet</span>
         <span class="route-summary-sep"></span>
         <span class="route-summary-item"><strong>${formatMinutes(totals.min)}</strong> sur la route</span>
-        ${routeStatus === 'loading' ? `<span class="route-summary-note">Calcul de l'itinéraire routier…</span>` : ''}
-        ${routeStatus === 'error' ? `<span class="route-summary-note">Distances estimées à vol d'oiseau — service de routage indisponible.</span>` : ''}
+        ${routeStatus === 'loading' ? `<span class="route-summary-note">Tracé approximatif — calcul de l'itinéraire routier…</span>` : ''}
+        ${routeStatus === 'error' ? `<span class="route-summary-note">Tracé et distances approximatifs — service de routage indisponible.</span>` : ''}
       </div>
     ` : ''}
 
@@ -2709,6 +2709,51 @@ function legColor(i, total) {
   return ROUTE_LEG_COLORS[Math.round((i / (total - 1)) * (ROUTE_LEG_COLORS.length - 1))];
 }
 
+// Personne ne conduit en ligne droite : sans service de routage, une ligne
+// tirée à la règle entre deux adresses ne ressemble à rien. On trace donc une
+// courbe plausible — un arc dont le sens vient du hash des coordonnées, donc
+// stable d'un rendu à l'autre — et on la pointille pour dire qu'elle est
+// approximative.
+function mockRoadPath(a, b) {
+  const steps = 28;
+  const bow = 0.11 * ((hashStr(coordKey(a) + coordKey(b)) % 2) ? 1 : -1);
+  const mLat = (a.lat + b.lat) / 2, mLng = (a.lng + b.lng) / 2;
+  // Décalage perpendiculaire à la corde, corrigé de la convergence des
+  // méridiens pour que l'arc soit perpendiculaire à l'écran, pas sur la sphère.
+  const k = Math.cos(mLat * Math.PI / 180) || 1;
+  const cLat = mLat - bow * (b.lng - a.lng) * k;
+  const cLng = mLng + bow * (b.lat - a.lat) / k;
+  const out = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps, u = 1 - t;
+    out.push([
+      u * u * a.lat + 2 * u * t * cLat + t * t * b.lat,
+      u * u * a.lng + 2 * u * t * cLng + t * t * b.lng,
+    ]);
+  }
+  return out;
+}
+
+// Point situé à une fraction de la longueur du tracé, et cap à cet endroit. La
+// géométrie routière est dense dans les virages et clairsemée sur les
+// autoroutes : se fier à l'index placerait les repères dans les carrefours.
+function pointAtFraction(path, f) {
+  if (path.length < 2) return { at: path[0], deg: 0 };
+  const seg = [];
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    const d = haversineKm({ lat: path[i - 1][0], lng: path[i - 1][1] }, { lat: path[i][0], lng: path[i][1] });
+    total += d;
+    seg.push(total);
+  }
+  const target = total * f;
+  let i = seg.findIndex(d => d >= target);
+  if (i < 0) i = seg.length - 1;
+  const a = path[i], b = path[i + 1] || path[i];
+  const k = Math.cos(a[0] * Math.PI / 180) || 1;
+  return { at: a, deg: Math.atan2((b[1] - a[1]) * k, b[0] - a[0]) * 180 / Math.PI };
+}
+
 function destroyTourMap() {
   if (!tourMap.instance) return;
   tourMap.center = tourMap.instance.getCenter();
@@ -2740,36 +2785,59 @@ function buildTourMap() {
   // own colour and its travel time label is unambiguously tied to it.
   const legCount = props.length - 1;
 
-  // Road-following geometry when OSRM has answered, straight lines until then.
+  // Road-following geometry when OSRM has answered, tracé simulé sinon.
   const routed = routeGeometry.get(routeSignature(props));
+  const isRouted = !!(routed && routed.status === 'ok');
   const legPath = (i) => {
-    if (routed && routed.status === 'ok' && routed.legs[i] && routed.legs[i].length > 1) return routed.legs[i];
-    const a = coordsFor(props[i]), b = coordsFor(props[i + 1]);
-    return [[a.lat, a.lng], [b.lat, b.lng]];
+    if (isRouted && routed.legs[i] && routed.legs[i].length > 1) return routed.legs[i];
+    return mockRoadPath(coordsFor(props[i]), coordsFor(props[i + 1]));
   };
 
-  // White casing under every leg first, so the route stays legible over busy
-  // tiles. All casings go down before any coloured line, otherwise a later
-  // casing would paint over the previous leg at the junction.
+  // Halo puis gainage blanc sous chaque segment : sur des tuiles chargées, une
+  // ligne sans contour disparaît dans le réseau routier du fond. Tous les
+  // gainages passent avant les lignes colorées, sinon un gainage recouvrirait le
+  // segment précédent à la jonction.
   for (let i = 0; i < legCount; i++) {
-    L.polyline(legPath(i), {
-      color: '#FFFFFF', weight: 9, opacity: 0.9, interactive: false, lineJoin: 'round', lineCap: 'round',
+    const path = legPath(i);
+    L.polyline(path, {
+      color: '#213163', weight: 14, opacity: 0.12, interactive: false, lineJoin: 'round', lineCap: 'round',
+    }).addTo(map);
+    L.polyline(path, {
+      color: '#FFFFFF', weight: 11, opacity: 0.95, interactive: false, lineJoin: 'round', lineCap: 'round',
     }).addTo(map);
   }
 
   for (let i = 0; i < legCount; i++) {
     const a = coordsFor(props[i]), b = coordsFor(props[i + 1]);
     const color = legColor(i, legCount);
-    L.polyline(legPath(i), { color, weight: 5, opacity: 1, lineJoin: 'round', lineCap: 'round' }).addTo(map);
-
-    // Travel time sits on the leg it belongs to, so the cost of the ordering is
-    // readable straight off the map rather than only in the list below. Only in
-    // geo mode: otherwise the schedule uses mock times and the map would
-    // contradict the travel chips in the list.
-    // Sit the label on the route itself: with road geometry the midpoint of the
-    // straight line often falls nowhere near the path actually driven.
     const path = legPath(i);
-    L.marker(path[Math.floor(path.length / 2)], {
+    L.polyline(path, {
+      color, weight: 6, opacity: 1, lineJoin: 'round', lineCap: 'round',
+      // Le pointillé dit que le tracé est estimé, pas relevé sur la route.
+      dashArray: isRouted ? null : '11 9',
+    }).addTo(map);
+
+    // Deux repères de direction par segment : c'est ce qui rend lisible « les
+    // visites s'enchaînent dans un seul sens », et contrairement à une
+    // animation, ça survit à une capture d'écran.
+    [0.32, 0.72].forEach(f => {
+      const { at, deg } = pointAtFraction(path, f);
+      L.marker(at, {
+        interactive: false,
+        icon: L.divIcon({
+          className: 'route-arrow-wrap',
+          html: `<svg class="route-arrow" style="transform:rotate(${deg.toFixed(1)}deg);" viewBox="0 0 24 24">
+            <path d="M12 3.5l7.5 15.5L12 15l-7.5 4z" fill="${color}" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/></svg>`,
+          iconSize: [18, 18], iconAnchor: [9, 9],
+        }),
+      }).addTo(map);
+    });
+
+    // Le temps de trajet est posé sur le segment auquel il appartient : le coût
+    // de l'ordre choisi se lit sur la carte, pas seulement dans la liste. Placé
+    // à la moitié de la distance parcourue — le milieu de la corde tombe
+    // souvent loin de la route réellement suivie.
+    L.marker(pointAtFraction(path, 0.5).at, {
       interactive: false,
       icon: L.divIcon({
         className: 'leg-label-wrap',
@@ -2794,10 +2862,13 @@ function buildTourMap() {
   if (sameSet) {
     map.setView(tourMap.center, tourMap.zoom);
   } else if (latlngs.length) {
-    // Fit the road path, not just the pins, so no part of the route is cropped.
+    // Cadrer sur le tracé et pas seulement sur les épingles : ni la route ni
+    // l'arc simulé ne tiennent dans le rectangle des arrêts.
     const bounds = L.latLngBounds(latlngs);
-    if (routed && routed.status === 'ok') routed.legs.forEach(leg => leg.forEach(pt => bounds.extend(pt)));
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    for (let i = 0; i < legCount; i++) legPath(i).forEach(pt => bounds.extend(pt));
+    // Plafond à 16 : deux propriétés voisines de 400 m tenaient dans un moignon
+    // de 20 px au zoom 14, alors que c'est justement le cas où le tracé compte.
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
   } else {
     map.setView([45.5019, -73.5674], 11);
   }

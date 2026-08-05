@@ -842,8 +842,23 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
   z-index: 0; /* keep Leaflet panes below the app's modal overlay */
 }
 
-/* Numbered stop markers. The number carries the direction of the tour, so no
-   arrowheads are needed on the route line. */
+/* Leaflet dimensionne le <svg> de son calque vectoriel par attributs
+   width/height — et une règle CSS l'emporte sur un attribut de présentation.
+   Le filet de sécurité `svg { width: 18px }` en tête de fichier réduisait donc
+   tout le tracé du tour à un carré de 18 px : les lignes étaient bien dans le
+   DOM, mais invisibles. On ne cible que ce svg-là ; les icônes des marqueurs,
+   imbriquées plus profond, gardent leur taille. */
+.leaflet-pane > svg { width: auto; height: auto; }
+
+/* La tuile OpenStreetMap est saturée de rouges et d'oranges autoroutiers : un
+   tracé posé dessus se lit comme une route de plus. On désature le fond pour
+   que l'itinéraire soit la seule chose colorée à l'écran — la hiérarchie que
+   Google Maps applique à ses propres cartes. Le filtre ne touche que le calque
+   des tuiles : épingles, tracé et repères gardent leurs couleurs. */
+.tour-map .leaflet-tile-pane { filter: saturate(0.28) brightness(1.06) contrast(0.94); }
+
+/* Numbered stop markers. The number carries the order of the tour; the arrows
+   along the route carry its direction. */
 .tour-pin-wrap { background: none; border: none; }
 .tour-pin {
   display: flex; align-items: center; justify-content: center;
@@ -853,6 +868,13 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
   border: 2px solid var(--blanc); box-shadow: var(--shadow-base);
 }
 .tour-pin.is-start { background: var(--succes); }
+
+/* Repère de direction posé sur le tracé, orienté au cap du segment. */
+.route-arrow-wrap { background: none; border: none; }
+.route-arrow {
+  width: 18px; height: 18px;
+  filter: drop-shadow(0 1px 2px rgba(33, 49, 99, 0.35));
+}
 
 .leg-label-wrap { background: none; border: none; }
 .leg-label {
