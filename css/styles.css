@@ -201,6 +201,14 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 .platform-opt-help { font-size: 12.5px; line-height: 1.4; color: var(--texte-secondaire); }
 
 @media (max-width: 768px) {
+  /* Rangée à trois champs : la date passe seule au-dessus, début et fin de
+     disponibilité restent côte à côte — c'est la même information. Le sélecteur
+     ne vise que les rangées de trois, les rangées de deux gardent leur mise en
+     page. */
+  .field-row { flex-wrap: wrap; }
+  .field-row .field:first-child:nth-last-child(3) { flex-basis: 100%; }
+  .field-row .field:first-child:nth-last-child(3) ~ .field { flex-basis: calc(50% - 8px); }
+
   .platform-switch { grid-template-columns: 1fr; }
 }
 
@@ -307,7 +315,9 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 .field { margin-bottom: 18px; }
 .field-label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--texte-principal); }
 .field-row { display: flex; gap: 16px; }
-.field-row .field { flex: 1; }
+/* min-width: 0 sinon un input date, qui a une largeur intrinsèque, écrase les
+   selects voisins au lieu de partager la place. */
+.field-row .field { flex: 1; min-width: 0; }
 
 .input {
   width: 100%;

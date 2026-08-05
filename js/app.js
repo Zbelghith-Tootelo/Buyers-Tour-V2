@@ -1398,6 +1398,7 @@ function renderModal() {
     return;
   }
   if (state.modal.type === 'confirmLeave') { root.innerHTML = renderConfirmLeaveModal(); return; }
+  if (state.modal.type === 'confirmRemoveStop') { root.innerHTML = renderConfirmRemoveStopModal(); return; }
   if (state.modal.type === 'editBuyer') { root.innerHTML = renderEditBuyerModal(); return; }
   if (state.modal.type === 'editStop') { root.innerHTML = renderEditStopModal(); return; }
   root.innerHTML = '';
@@ -1565,6 +1566,47 @@ function renderConfirmModal(title, body, confirmId) {
         <div class="modal-body"><p style="font-size:14.5px;color:var(--texte-secondaire);line-height:1.5;">${esc(body)}</p></div>
         <div class="modal-footer" style="display:flex;gap:10px;">
           <button class="btn btn-danger" id="${confirmId}">Supprimer</button>
+          <button class="btn btn-outline" id="modal-cancel">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Retirer une propriété annule une demande partie à une personne réelle. Le
+// modal nomme la propriété — les lignes du tour se ressemblent et la corbeille
+// est petite — puis dit ce que le retrait déclenche vraiment, qui dépend de ce
+// que le courtier a déjà répondu.
+function renderConfirmRemoveStopModal() {
+  const stop = state.draft.stops.find(s => s.id === state.modal.stopId);
+  if (!stop) return '';
+  const tour = currentTour();
+  const st = effectiveStopStatus(stop, tour);
+  const sent = !!(tour && tour.sentAt);
+  const courtier = stop.courtier;
+
+  const consequence = !courtier
+    ? 'Cet arrêt disparaît du tour. Aucune demande n\'a été envoyée pour cette adresse.'
+    : st === 'refused'
+      ? `${esc(courtier)} a déjà refusé cette visite. Il n'y a rien à annuler.`
+      : st === 'noreply'
+        ? `${esc(courtier)} n'a pas répondu. La demande de visite sera annulée.`
+        : sent
+          ? `La demande de visite envoyée à ${esc(courtier)} sera annulée.`
+          : `La demande de visite préparée pour ${esc(courtier)} sera perdue.`;
+
+  return `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal modal-sm">
+        <div class="modal-head"><h2>Retirer cette propriété ?</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
+        <div class="modal-body">
+          <div class="vr-property" style="padding-bottom:14px;border-bottom:1px solid var(--bordures);margin-bottom:14px;">
+            <img class="result-thumb" src="${thumbFor(stop.mls, stop.address)}" alt="">
+            <span class="vr-property-address">${esc(stop.address)}</span>
+          </div>
+          <p style="font-size:14.5px;color:var(--texte-secondaire);line-height:1.5;margin:0;">${consequence}</p>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:10px;">
+          <button class="btn btn-danger" id="btn-confirm-remove-stop">Retirer du tour</button>
           <button class="btn btn-outline" id="modal-cancel">Annuler</button>
         </div>
       </div>
@@ -2275,10 +2317,19 @@ function bindBuilderEvents() {
   document.querySelectorAll('[data-edit-pause]').forEach(el => {
     el.onclick = () => { state.modal = { type: 'editStop', stopId: el.getAttribute('data-edit-pause') }; render(); };
   });
+  // Une pause se resupprime et se recrée en deux clics : la confirmer serait du
+  // bruit. Une propriété engage un courtier inscripteur, donc elle se confirme.
   document.querySelectorAll('[data-remove-stop]').forEach(el => {
     el.onclick = () => {
-      state.draft.stops = state.draft.stops.filter(s => s.id !== el.getAttribute('data-remove-stop'));
-      markDirtyIfSent();
+      const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-remove-stop'));
+      if (!stop) return;
+      if (stop.type === 'pause') {
+        state.draft.stops = state.draft.stops.filter(s => s.id !== stop.id);
+        markDirtyIfSent();
+        render();
+        return;
+      }
+      state.modal = { type: 'confirmRemoveStop', stopId: stop.id };
       render();
     };
   });
@@ -2365,10 +2416,8 @@ function bindBuilderEvents() {
     el.onclick = () => {
       const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-remove-stop-inline'));
       if (!stop) return;
-      state.draft.stops = state.draft.stops.filter(s => s.id !== stop.id);
-      persistAnswer();
+      state.modal = { type: 'confirmRemoveStop', stopId: stop.id };
       render();
-      showToast(`${stopShortLabel(stop)} retiré du tour.`);
     };
   });
   document.querySelectorAll('[data-relance-stop]').forEach(el => {
@@ -2691,6 +2740,20 @@ function bindModalEvents() {
     if (saveBtn) saveBtn.onclick = () => { saveDraftAsTour(); leave(); showToast('Tour enregistré. Vous pourrez l\'envoyer plus tard.', 'success'); };
     const discardBtn = document.getElementById('btn-leave-discard');
     if (discardBtn) discardBtn.onclick = leave;
+  }
+  if (state.modal.type === 'confirmRemoveStop') {
+    const btn = document.getElementById('btn-confirm-remove-stop');
+    if (btn) btn.onclick = () => {
+      const stop = state.draft.stops.find(s => s.id === state.modal.stopId);
+      if (!stop) { closeModal(); return; }
+      state.draft.stops = state.draft.stops.filter(s => s.id !== stop.id);
+      // Retirer un arrêt après l'envoi annule une demande : c'est un échange
+      // avec le courtier, pas une modification à lui renotifier.
+      if (currentTour() && currentTour().sentAt) persistAnswer(); else markDirtyIfSent();
+      state.modal = null;
+      render();
+      showToast(`${stopShortLabel(stop)} retiré du tour.`);
+    };
   }
   if (state.modal.type === 'editBuyer') bindEditBuyerModalEvents();
   if (state.modal.type === 'editStop') {
