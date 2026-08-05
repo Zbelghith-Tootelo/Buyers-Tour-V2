@@ -471,6 +471,54 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 .btn-inline:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: 2px; }
 .btn-inline.ghost { background: transparent; border-color: transparent; text-decoration: underline; }
 
+/* Créneau simultané. Le bandeau reprend la grille de .stop-answer — même
+   intervalle, même gabarit — mais reste bleu : ce n'est pas une réponse de
+   courtier à traiter, c'est une information destinée au seul courtier acheteur.
+   Une fois le créneau confirmé, il perd son fond et se réduit à une trace. */
+.slot-note {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  padding: 10px 14px; border-radius: var(--radius-md); border-left: 4px solid var(--bleu-secondaire);
+  background: var(--bleu-action-10); color: var(--bleu-action-dark);
+  font-size: 13.5px; margin: 6px 0;
+}
+.slot-note svg { width: 16px; height: 16px; flex-shrink: 0; }
+.slot-note .banner-text { flex: 1; min-width: 200px; line-height: 1.45; }
+.slot-note strong { font-weight: 700; }
+.slot-note.is-ack {
+  background: transparent; color: var(--texte-secondaire);
+  border-left-color: var(--bordures); padding-top: 6px; padding-bottom: 6px;
+}
+
+/* Les deux visites d'un créneau forment un bloc : le liseré les relie sans
+   ajouter d'encadré autour (loi de continuité). */
+.stop-card.same-slot { border-left: 4px solid var(--bleu-secondaire); }
+
+/* Aperçu de l'optimisation : le gain d'abord, ce qu'il coûte ensuite. */
+.plan-summary { background: var(--lumiere-principale); border: 1px solid var(--bordures); border-radius: var(--radius-lg); padding: 14px 16px; }
+.plan-summary-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13.5px; color: var(--texte-secondaire); }
+.plan-summary-row + .plan-summary-row { margin-top: 6px; }
+.plan-summary-row.is-after { color: var(--bleu-principal); font-weight: 700; font-size: 15px; }
+.plan-summary-value { white-space: nowrap; }
+.plan-delta { margin: 10px 0 0; font-size: 13px; color: var(--texte-secondaire); }
+.plan-delta.is-gain { color: #17792a; font-weight: 700; }
+
+.plan-list { list-style: none; margin: 0; padding: 0; }
+.plan-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--bordures); font-size: 14px;
+}
+.plan-row:last-child { border-bottom: none; }
+.plan-index {
+  width: 22px; height: 22px; border-radius: 999px; background: var(--bleu-principal); color: var(--blanc);
+  font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.plan-label { flex: 1; min-width: 0; font-weight: 600; color: var(--texte-principal); }
+.plan-time { white-space: nowrap; color: var(--bleu-principal); font-size: 13.5px; }
+.plan-old { color: var(--texte-secondaire); text-decoration: line-through; }
+.plan-row.is-same .plan-index { background: var(--neutre-surface); color: var(--texte-secondaire); }
+.plan-row.is-same .plan-label { font-weight: 400; color: var(--texte-secondaire); }
+.plan-unchanged { color: var(--texte-secondaire); font-size: 12px; }
+
 /* Propriété hors catalogue : la demande part par courriel, sans créer de fiche. */
 .ext-chip {
   display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 7px;

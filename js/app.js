@@ -36,6 +36,7 @@ const ICONS = {
   cart: `<circle cx="9" cy="20" r="1.4" fill="currentColor"/><circle cx="18" cy="20" r="1.4" fill="currentColor"/><path d="M2 3h2l2.6 12.6a2 2 0 002 1.6h8.9a2 2 0 002-1.6L21 7H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   flag: `<path d="M6 3v18M6 4h11l-2.5 4L17 12H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   sync: `<path d="M3 12a9 9 0 0115.3-6.4M21 12a9 9 0 01-15.3 6.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M18.6 3.6v4.2h-4.2M5.4 20.4v-4.2h4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+  layers: `<path d="M12 3l8.5 4.5L12 12 3.5 7.5 12 3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   star: { viewBox: '0 0 27 26', content: `<path d="M13.1016 0.5C13.8575 0.5 14.5467 0.933553 14.873 1.61523L17.7061 7.49512L24.0322 8.4375L24.0332 8.43848C24.7731 8.55044 25.3802 9.07198 25.6123 9.78027C25.8454 10.4919 25.6556 11.2766 25.1279 11.8027L20.5322 16.3887L21.623 22.873V22.875C21.7455 23.6167 21.4391 24.3637 20.834 24.8076C20.222 25.2564 19.4148 25.3039 18.7539 24.9521L18.752 24.9502L13.1064 21.9092L7.46094 24.9502L7.45898 24.9521C6.79541 25.3053 5.99013 25.2494 5.38184 24.8096C4.77244 24.3687 4.46771 23.6146 4.58984 22.875V22.874L5.6748 16.3887L1.08008 11.8027C0.550316 11.2744 0.369538 10.4904 0.594727 9.78418C0.822466 9.07009 1.43758 8.55008 2.1748 8.43848L2.17578 8.4375L8.49707 7.49512L11.3311 1.61523L11.332 1.61426C11.6616 0.936913 12.3428 0.500156 13.1016 0.5Z" stroke="currentColor"/>` },
 };
 const icon = (name, cls = '') => {
@@ -252,6 +253,38 @@ function geoTravelKm(a, b) {
   return known != null ? known : haversineKm(a, b);
 }
 
+/* ----- Créneaux simultanés -----
+   Deux propriétés très proches — deux unités du même immeuble, deux maisons de
+   la même rue — n'ont pas besoin de deux créneaux successifs : le courtier
+   acheteur peut demander la même heure aux deux courtiers inscripteurs et
+   enchaîner sur place. Le système ne l'interdit donc plus ; il le propose quand
+   la distance le permet, prévient que le chevauchement existe, et laisse le
+   courtier acheteur le confirmer. Lui seul voit ce chevauchement : chaque
+   courtier inscripteur reçoit une demande normale pour son heure. */
+const SAME_SLOT_MAX_KM = 1.5;
+
+function nearbyStops(a, b) {
+  if (!a || !b || a.type !== 'property' || b.type !== 'property') return false;
+  return haversineKm(coordsFor(a), coordsFor(b)) <= SAME_SLOT_MAX_KM;
+}
+function slotDistanceKm(a, b) {
+  return haversineKm(coordsFor(a), coordsFor(b));
+}
+// Un créneau partagé n'a de sens qu'entre deux propriétés voisines dans la
+// liste : `parallel` devient donc faux dès qu'un glisser-déposer, une insertion
+// ou une optimisation change le voisin. On normalise à chaque rendu plutôt que
+// de traquer les onze endroits qui réordonnent la liste.
+function normalizeParallel(draft) {
+  if (!draft) return;
+  draft.stops.forEach((stop, i) => {
+    if (!stop.parallel) return;
+    const prev = draft.stops[i - 1];
+    if (prev && prev.type === 'property' && nearbyStops(prev, stop)) return;
+    stop.parallel = false;
+    stop.slotAck = false;
+  });
+}
+
 // Greedy nearest-neighbour from the first stop, which stays the anchor: the
 // agent decides where the day starts, geography decides the rest.
 function optimizeByGeography(props) {
@@ -296,7 +329,9 @@ function travelBetween(prev, cur, lastProperty) {
   return geoTravelMinutes(coordsFor(from), coordsFor(cur));
 }
 
-function formatKm(km) { return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`; }
+// Virgule décimale : l'interface est en français, « 0.4 km » se lit comme une
+// coquille.
+function formatKm(km) { return km < 10 ? `${km.toFixed(1).replace('.', ',')} km` : `${Math.round(km)} km`; }
 function formatMinutes(min) {
   if (min < 60) return `${min} min`;
   const h = Math.floor(min / 60), m = min % 60;
@@ -609,33 +644,6 @@ function saveDraftAsTour() {
   state.dirty = false;
 }
 
-// After a geographic reorder the previously agreed times no longer match the
-// driving order, so the schedule is reflowed from the tour start: each visit
-// begins when you actually arrive. Stops carrying an agreed time keep it as a
-// field but get the recomputed value, which is what clears the conflict banners.
-// Returns how many visit times moved, so the user can be told.
-function reflowVisitTimes(draft) {
-  let cursor = timeToMinutes(draft.time);
-  let lastProperty = null;
-  let shifted = 0;
-  draft.stops.forEach((stop, i) => {
-    const prev = draft.stops[i - 1];
-    if (prev) {
-      const travel = travelBetween(prev, stop, lastProperty);
-      if (travel) cursor += travel;
-    }
-    if (stop.type === 'pause') { cursor += stop.duration; return; }
-    if (stop.locked && stop.lockedStart) {
-      const next = minutesToLabel(cursor).replace('h', ':');
-      if (next !== stop.lockedStart) shifted++;
-      stop.lockedStart = next;
-    }
-    cursor += stop.duration;
-    lastProperty = stop;
-  });
-  return shifted;
-}
-
 // Confirming a visit locks it at the time it currently occupies in the schedule.
 // Any other status has to clear that time: a stale lockedStart means a later
 // re-confirmation would silently reuse the old hour instead of the stop's
@@ -662,17 +670,120 @@ function acceptProposedStart(stop) {
   if (proposed) { stop.lockedStart = proposed; stop.locked = true; }
 }
 
-function optimizeDraftStops() {
-  const pauses = state.draft.stops.filter(s => s.type === 'pause');
-  const props = state.draft.stops.filter(s => s.type === 'property');
-  state.draft.stops = [...optimizeByGeography(props), ...pauses];
-  const shifted = reflowVisitTimes(state.draft);
-  const { km, min } = routeTotals(state.draft.stops);
-  const message = `Tour optimisé : ${formatKm(km)} et ${formatMinutes(min)} de trajet.`
-    + (shifted ? ` ${shifted} heure${shifted > 1 ? 's' : ''} de visite ajustée${shifted > 1 ? 's' : ''}.` : '');
+/* ----- Actions sur un créneau partagé ----- */
+
+// Grouper deux visites dans le même créneau change l'heure demandée à la
+// seconde : si son courtier avait déjà confirmé une autre heure, la
+// confirmation ne tient plus. On la libère au lieu d'afficher « Confirmée » sur
+// une heure que personne n'a acceptée.
+function groupSameSlot(stop) {
+  const rows = computeSchedule(state.draft);
+  const idx = state.draft.stops.indexOf(stop);
+  const prev = state.draft.stops[idx - 1];
+  const prevRow = rows.find(r => r.stop === prev);
+  const slotStart = prevRow ? minutesToLabel(prevRow.start).replace('h', ':') : null;
+  const wasConfirmed = stop.locked && stop.lockedStart && stop.lockedStart !== slotStart;
+  stop.parallel = true;
+  stop.slotAck = false;
+  if (wasConfirmed) setStopStatus(stop, 'pending');
   markDirtyIfSent();
   render();
-  showToast(message, 'success');
+  showToast(wasConfirmed
+    ? `Visite déplacée à ${slotStart ? slotStart.replace(':', 'h') : 'ce créneau'} : la confirmation du courtier est à redemander.`
+    : `Les deux visites sont demandées à ${slotStart ? slotStart.replace(':', 'h') : 'la même heure'}.`,
+    wasConfirmed ? 'default' : 'success');
+}
+function splitSameSlot(stop) {
+  stop.parallel = false;
+  stop.slotAck = false;
+  markDirtyIfSent();
+  render();
+  showToast('Les deux visites sont de nouveau demandées l\'une après l\'autre.');
+}
+function ackSameSlot(stop) {
+  stop.slotAck = true;
+  markDirtyIfSent();
+  render();
+  showToast('Créneau simultané confirmé.', 'success');
+}
+
+/* ----- Optimisation ----- */
+
+// L'optimisation réordonne le tour et peut donc changer l'heure de visites déjà
+// confirmées. On la calcule d'abord sur une copie pour la montrer avant de
+// l'appliquer : le courtier voit exactement ce qui bouge et décide.
+function planOptimization() {
+  const beforeStart = new Map(computeSchedule(state.draft).map(r => [r.stop.id, r.start]));
+  const beforeOrder = state.draft.stops.map(s => s.id).join(',');
+  const beforeTotals = routeTotals(state.draft.stops);
+
+  const sim = JSON.parse(JSON.stringify(state.draft));
+  const pauses = sim.stops.filter(s => s.type === 'pause');
+  const props = sim.stops.filter(s => s.type === 'property');
+  sim.stops = [...optimizeByGeography(props), ...pauses];
+  normalizeParallel(sim);
+
+  // Une heure verrouillée épinglerait la visite à sa place actuelle et
+  // empêcherait le tour de se recalculer. On libère tout, on recalcule, puis on
+  // ne rend la confirmation qu'aux visites qui retombent sur leur heure.
+  const held = sim.stops
+    .filter(s => s.type === 'property' && s.locked && s.lockedStart)
+    .map(s => ({ id: s.id, lockedStart: s.lockedStart }));
+  held.forEach(h => {
+    const s = sim.stops.find(x => x.id === h.id);
+    s.locked = false;
+    s.lockedStart = null;
+  });
+  const afterStart = new Map(computeSchedule(sim).map(r => [r.stop.id, r.start]));
+  const released = [];
+  held.forEach(h => {
+    const s = sim.stops.find(x => x.id === h.id);
+    if (afterStart.get(h.id) === timeToMinutes(h.lockedStart)) {
+      s.locked = true;
+      s.lockedStart = h.lockedStart;
+    } else {
+      s.status = 'pending';
+      released.push(h.id);
+    }
+  });
+
+  const rows = sim.stops.filter(s => s.type === 'property').map(s => ({
+    label: stopShortLabel(s),
+    courtier: s.courtier,
+    oldStart: beforeStart.get(s.id),
+    newStart: afterStart.get(s.id),
+    released: released.includes(s.id),
+  }));
+
+  return {
+    sim,
+    rows,
+    released,
+    before: beforeTotals,
+    after: routeTotals(sim.stops),
+    changed: sim.stops.map(s => s.id).join(',') !== beforeOrder || rows.some(r => r.oldStart !== r.newStart),
+  };
+}
+
+function optimizeDraftStops() {
+  const plan = planOptimization();
+  if (!plan.changed) {
+    showToast('Le tour suit déjà le trajet le plus court.');
+    return;
+  }
+  state.modal = { type: 'optimizePlan', plan };
+  render();
+}
+
+function applyOptimization(plan) {
+  state.draft.stops = plan.sim.stops;
+  markDirtyIfSent();
+  state.modal = null;
+  render();
+  const { km, min } = plan.after;
+  showToast(`Tour optimisé : ${formatKm(km)} et ${formatMinutes(min)} de trajet.`
+    + (plan.released.length ? ` ${plan.released.length} visite${plan.released.length > 1 ? 's' : ''} à faire reconfirmer.` : ''),
+    'success');
 }
 
 // Relancer remet le compteur du délai à zéro : les arrêts « sans réponse »
@@ -776,11 +887,16 @@ function computeSchedule(draft) {
   let cursor = timeToMinutes(draft.time);
   const rows = [];
   let lastProperty = null;
+  let lastStart = null;
   for (let i = 0; i < draft.stops.length; i++) {
     const stop = draft.stops[i];
     const prev = draft.stops[i - 1];
+    // Créneau partagé : la visite démarre avec la précédente au lieu de la
+    // suivre. Pas de trajet à compter — il se fait pendant le créneau.
+    const sharesSlot = !!(stop.type === 'property' && stop.parallel
+      && prev && prev.type === 'property' && lastStart !== null);
     let travelBefore = null;
-    if (prev) {
+    if (prev && !sharesSlot) {
       travelBefore = travelBetween(prev, stop, lastProperty);
       if (travelBefore) cursor += travelBefore;
     }
@@ -790,6 +906,11 @@ function computeSchedule(draft) {
       start = cursor;
       cursor += stop.duration;
     } else {
+      // On rembobine le curseur au début du créneau, puis la logique d'heure
+      // verrouillée s'applique telle quelle : une visite confirmée à une autre
+      // heure que le créneau produit le conflit habituel, ce qui est exact.
+      const slotEnd = cursor;
+      if (sharesSlot) cursor = lastStart;
       if (stop.locked && stop.lockedStart) {
         const lockedMin = timeToMinutes(stop.lockedStart);
         if (cursor > lockedMin) {
@@ -807,9 +928,11 @@ function computeSchedule(draft) {
         start = cursor;
         cursor += stop.duration;
       }
+      // La visite la plus longue du créneau décide de la suite du tour.
+      if (sharesSlot) cursor = Math.max(cursor, slotEnd);
     }
-    rows.push({ stop, start, travelBefore, conflict });
-    if (stop.type !== 'pause') lastProperty = stop;
+    rows.push({ stop, start, travelBefore, conflict, sharesSlot });
+    if (stop.type !== 'pause') { lastProperty = stop; lastStart = start; }
   }
   return rows;
 }
@@ -852,6 +975,9 @@ function setTopbarTitle(title) {
 
 function render() {
   const main = document.getElementById('main-content');
+  // Un créneau partagé dépend de l'ordre de la liste : on le revalide ici, seul
+  // point par lequel passe toute modification du tour.
+  normalizeParallel(state.draft);
   if (state.screen === 'list') { setTopbarTitle('Tour de visites'); main.innerHTML = renderListScreen(); }
   else if (state.screen === 'contact') { setTopbarTitle(state.contactPurpose === 'share' ? 'Partager le tour de visites' : 'Créer un tour de visites'); main.innerHTML = renderContactScreen(); }
   else if (state.screen === 'builder') { setTopbarTitle('Créer un tour de visites'); main.innerHTML = renderBuilderScreen(); }
@@ -1111,14 +1237,45 @@ function renderBuilderScreen() {
       <p>Aucune destination ajoutée pour l'instant.</p>
       <p class="empty-sub">Utilisez « Ajouter une destination » pour composer le tour.</p>
     </div>
-  ` : rows.map(({ stop, start, travelBefore, conflict }, i) => {
+  ` : rows.map(({ stop, start, travelBefore, conflict, sharesSlot }, i) => {
+    const prevStop = draft.stops[i - 1];
+    // La proposition de créneau partagé vit dans le bandeau de trajet : c'est
+    // exactement l'intervalle dont il est question (loi de proximité).
+    const canShareSlot = !sharesSlot && !stop.parallel && nearbyStops(prevStop, stop);
+    // Les deux cartes d'un créneau portent le même liseré : le groupe se lit
+    // d'un coup d'œil, bandeau compris (loi de continuité).
+    const opensSlot = !!(rows[i + 1] && rows[i + 1].sharesSlot);
     let travelHtml = '';
     if (travelBefore !== null && !conflict) {
       const nextIsPause = stop.type === 'pause';
       const label = nextIsPause ? `Trajet estimé : ${travelBefore} min avant la pause` : `Trajet estimé : ${travelBefore} min`;
       travelHtml = `
-        <div class="travel-chip">${icon('car')} <span class="banner-text">${label}</span>
+        <div class="travel-chip">${icon('car')} <span class="banner-text">${label}${canShareSlot
+          ? ` — ${formatKm(slotDistanceKm(prevStop, stop))} seulement entre les deux` : ''}</span>
+          ${canShareSlot ? `<button class="btn-inline" data-share-slot="${stop.id}">Même créneau</button>` : ''}
           <span class="banner-edit"><button class="banner-edit-btn" data-edit-stop="${stop.id}" title="${bannerEditTitle}">${icon('pencil')}</button></span>
+        </div>`;
+    }
+
+    // Le chevauchement n'est plus une erreur à corriger mais un choix à
+    // assumer : on l'annonce au courtier acheteur — seul destinataire, les
+    // courtiers inscripteurs ne voient que leur propre demande — et c'est lui
+    // qui le confirme (Nielsen #1 et #3).
+    let slotHtml = '';
+    if (sharesSlot) {
+      const km = formatKm(slotDistanceKm(prevStop, stop));
+      const hour = minutesToLabel(start);
+      slotHtml = stop.slotAck ? `
+        <div class="slot-note is-ack">${icon('layers')}
+          <span class="banner-text">Créneau simultané confirmé : deux visites à ${hour}, à ${km} l'une de l'autre.</span>
+          <button class="btn-inline ghost" data-split-slot="${stop.id}">Séparer</button>
+        </div>` : `
+        <div class="slot-note is-pending">${icon('layers')}
+          <span class="banner-text"><strong>Vous avez placé deux visites à ${hour}.</strong>
+            Ces propriétés sont à ${km} l'une de l'autre. Chaque courtier inscripteur reçoit une demande pour ${hour}
+            et ne voit que la sienne — à vous de confirmer que vous tenez les deux.</span>
+          <button class="btn-inline" data-ack-slot="${stop.id}">Je confirme ce créneau</button>
+          <button class="btn-inline ghost" data-split-slot="${stop.id}">Séparer les visites</button>
         </div>`;
     }
     let conflictHtml = '';
@@ -1162,7 +1319,7 @@ function renderBuilderScreen() {
           ${statusLabel}${icon('sync')}
         </button>`;
       card = `
-        <div class="stop-card" draggable="true" data-stop-id="${stop.id}">
+        <div class="stop-card${sharesSlot || opensSlot ? ' same-slot' : ''}" draggable="true" data-stop-id="${stop.id}">
           <span class="drag-handle">${icon('drag')}</span>
           <div class="stop-icon">
             ${st === 'confirmed' ? STOP_ICON_CONFIRMED_SVG : STOP_ICON_PENDING_SVG}
@@ -1203,7 +1360,7 @@ function renderBuilderScreen() {
           </div>`;
       }
     }
-    return travelHtml + card + answerHtml + conflictHtml;
+    return travelHtml + slotHtml + card + answerHtml + conflictHtml;
   }).join('');
 
   // L'acheteur n'apparaît qu'une fois choisi, à la fin du parcours : pendant la
@@ -1355,6 +1512,7 @@ function renderModal() {
     root.innerHTML = renderConfirmModal('Supprimer le tour', body, 'btn-confirm-delete-tour');
     return;
   }
+  if (state.modal.type === 'optimizePlan') { root.innerHTML = renderOptimizePlanModal(); return; }
   if (state.modal.type === 'confirmLeave') { root.innerHTML = renderConfirmLeaveModal(); return; }
   if (state.modal.type === 'confirmRemoveStop') { root.innerHTML = renderConfirmRemoveStopModal(); return; }
   if (state.modal.type === 'editBuyer') { root.innerHTML = renderEditBuyerModal(); return; }
@@ -1511,6 +1669,64 @@ function renderConfirmSendUpdateModal() {
             <button class="btn btn-primary btn-block" id="btn-send-update-broker-buyer">Courtier et acheteur</button>
             <button class="btn btn-primary btn-block" id="btn-send-update-broker-only">Courtier uniquement</button>
           </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Optimiser réordonne le tour et déplace des heures déjà demandées, parfois
+// déjà confirmées. On montre donc le résultat avant de l'appliquer : le gain de
+// trajet d'un côté, ce que ça coûte de l'autre, puis le courtier décide.
+function renderOptimizePlanModal() {
+  const plan = state.modal.plan;
+  const dKm = plan.before.km - plan.after.km;
+  const dMin = plan.before.min - plan.after.min;
+  const gain = dKm > 0.1 || dMin > 0;
+  const delta = !gain
+    ? 'Même distance, mais les visites s\'enchaînent dans un seul sens.'
+    : `${dKm > 0.1 ? `− ${formatKm(dKm)}` : ''}${dKm > 0.1 && dMin > 0 ? ' et ' : ''}${dMin > 0 ? `− ${formatMinutes(dMin)}` : ''} de trajet.`;
+
+  return `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-head"><h2>Optimiser le tour</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
+        <div class="modal-body">
+          <div class="plan-summary">
+            <div class="plan-summary-row">
+              <span class="plan-summary-label">Trajet actuel</span>
+              <span class="plan-summary-value">${formatKm(plan.before.km)} · ${formatMinutes(plan.before.min)}</span>
+            </div>
+            <div class="plan-summary-row is-after">
+              <span class="plan-summary-label">Après optimisation</span>
+              <span class="plan-summary-value">${formatKm(plan.after.km)} · ${formatMinutes(plan.after.min)}</span>
+            </div>
+            <p class="plan-delta ${gain ? 'is-gain' : ''}">${delta}</p>
+          </div>
+
+          <p class="section-label" style="margin:18px 0 8px;">Nouvel ordre et heures de visite :</p>
+          <ol class="plan-list">
+            ${plan.rows.map((r, i) => `
+              <li class="plan-row${r.oldStart === r.newStart ? ' is-same' : ''}">
+                <span class="plan-index">${i + 1}</span>
+                <span class="plan-label">${esc(r.label)}</span>
+                <span class="plan-time">
+                  ${r.oldStart === r.newStart
+                    ? `${minutesToLabel(r.newStart)} <span class="plan-unchanged">inchangée</span>`
+                    : `<span class="plan-old">${minutesToLabel(r.oldStart)}</span> → <strong>${minutesToLabel(r.newStart)}</strong>`}
+                </span>
+              </li>`).join('')}
+          </ol>
+
+          ${plan.released.length ? `
+            <div class="alert-banner warning" style="margin-top:16px;">${icon('warning')}
+              <span class="banner-text"><strong>${plan.released.length} visite${plan.released.length > 1 ? 's' : ''} déjà confirmée${plan.released.length > 1 ? 's' : ''}</strong>
+                change${plan.released.length > 1 ? 'nt' : ''} d'heure et repassera${plan.released.length > 1 ? 'ont' : ''} « à confirmer » :
+                le courtier inscripteur avait accepté une heure précise, pas une place dans le tour.</span>
+            </div>` : ''}
+        </div>
+        <div class="modal-footer" style="display:flex;gap:10px;">
+          <button class="btn btn-primary" id="btn-apply-optimize">Appliquer les nouvelles heures</button>
+          <button class="btn btn-outline" id="modal-cancel">Annuler</button>
         </div>
       </div>
     </div>`;
@@ -2289,6 +2505,16 @@ function bindBuilderEvents() {
       render();
     };
   });
+  const slotAction = (attr, fn) => document.querySelectorAll(`[${attr}]`).forEach(el => {
+    el.onclick = () => {
+      const stop = state.draft.stops.find(s => s.id === el.getAttribute(attr));
+      if (stop) fn(stop);
+    };
+  });
+  slotAction('data-share-slot', groupSameSlot);
+  slotAction('data-ack-slot', ackSameSlot);
+  slotAction('data-split-slot', splitSameSlot);
+
   // Le crayon d'un bandeau porte sur l'intervalle entre deux visites, pas sur la
   // visite elle-même : il ouvre « Ajouter une destination » ancré à cet endroit,
   // pour y glisser une pause, un arrêt personnalisé ou une propriété.
@@ -2721,6 +2947,10 @@ function bindModalEvents() {
       render();
       showToast('Tour de visites supprimé.');
     };
+  }
+  if (state.modal.type === 'optimizePlan') {
+    const btn = document.getElementById('btn-apply-optimize');
+    if (btn) btn.onclick = () => applyOptimization(state.modal.plan);
   }
   if (state.modal.type === 'confirmLeave') {
     const go = state.pendingLeave;
