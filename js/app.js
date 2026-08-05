@@ -630,13 +630,12 @@ function saveDraftAsTour() {
     existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
     existing.date = state.draft.date;
     existing.time = state.draft.time;
-    existing.windowEnd = state.draft.windowEnd;
     existing.stops = state.draft.stops;
   } else {
     const newId = uid();
     state.tours.push({
       id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
-      date: state.draft.date, time: state.draft.time, windowEnd: state.draft.windowEnd,
+      date: state.draft.date, time: state.draft.time,
       stops: state.draft.stops, sentAt: null,
     });
     state.editingTourId = newId;
@@ -804,7 +803,6 @@ function shareTourWithBuyer(buyer) {
     t.stops = state.draft.stops;
     t.date = state.draft.date;
     t.time = state.draft.time;
-    t.windowEnd = state.draft.windowEnd;
     t.sharedAt = Date.now();
   }
   state.dirty = false;
@@ -820,7 +818,6 @@ function sendTourToBrokers(notifyBuyer) {
     existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
     existing.date = state.draft.date;
     existing.time = state.draft.time;
-    existing.windowEnd = state.draft.windowEnd;
     existing.stops = state.draft.stops;
     existing.sentAt = Date.now();
     existing.relancedAt = null;
@@ -829,7 +826,7 @@ function sendTourToBrokers(notifyBuyer) {
     const newId = uid();
     state.tours.push({
       id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
-      date: state.draft.date, time: state.draft.time, windowEnd: state.draft.windowEnd,
+      date: state.draft.date, time: state.draft.time,
       stops: state.draft.stops, sentAt: Date.now(), relancedAt: null, sharedAt,
     });
     state.editingTourId = newId;
@@ -851,7 +848,6 @@ function saveDraftToTour(notify, notifyBuyer = false) {
   t.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
   t.date = state.draft.date;
   t.time = state.draft.time;
-  t.windowEnd = state.draft.windowEnd;
   t.stops = state.draft.stops;
   if (notify) t.sharedWithBuyer = notifyBuyer;
   state.dirty = false;
@@ -866,15 +862,15 @@ function saveDraftToTour(notify, notifyBuyer = false) {
   );
 }
 
-// L'acheteur est choisi à la fin du parcours : le tour se construit
-// alors sans lui. Il garde quand même un cadre — la fenêtre de disponibilité —
-// sans quoi on demanderait des créneaux aux courtiers sans savoir dans quelle
-// plage on peut les accepter.
+// L'acheteur est choisi à la fin du parcours : le tour se construit sans lui.
+// Le tour ne se cadre que par sa date et son heure de départ — c'est
+// l'enchaînement des visites qui décide de sa fin, pas une contrainte saisie
+// d'avance.
 function newDraft(buyer = null) {
-  return { buyer, date: todayPlus(3), time: '14:00', windowEnd: '18:00', stops: [] };
+  return { buyer, date: todayPlus(3), time: '14:00', stops: [] };
 }
 
-// Fin réelle du tour, pour comparer à la fenêtre de disponibilité.
+// Fin réelle du tour, telle qu'annoncée à l'acheteur au moment du partage.
 function tourEndMinutes(draft) {
   const rows = computeSchedule(draft);
   const last = rows[rows.length - 1];
@@ -1374,16 +1370,6 @@ function renderBuilderScreen() {
       </div>
     </div>`;
 
-  // Sans fenêtre de disponibilité, on demande des créneaux aux courtiers sans
-  // savoir dans quelle plage on pourra les accepter. L'avertissement se
-  // déclenche sur la fin réelle du tour, trajets compris.
-  const endMin = tourEndMinutes(draft);
-  const windowMin = timeToMinutes(draft.windowEnd || '23:45');
-  const windowHtml = propertyCount === 0 || endMin <= windowMin ? '' : `
-    <div class="alert-banner warning window-warning" style="margin-bottom:14px;">${icon('warning')}
-      <span class="banner-text"><strong>Attention :</strong> le tour se termine à ${minutesToLabel(endMin)}, après la fin de disponibilité de ${minutesToLabel(windowMin)}.</span>
-    </div>`;
-
   const validationPanel = status !== 'en_validation' && status !== 'confirme' ? '' : `
     <div class="validation-panel ${status}">
       <div class="validation-counts">
@@ -1408,15 +1394,9 @@ function renderBuilderScreen() {
         </div>
       </div>
       <div class="field">
-        <label class="field-label">Début</label>
+        <label class="field-label">Heure</label>
         <select class="input select" id="builder-time">
           ${TIME_OPTIONS.map(t => `<option value="${t}" ${t === draft.time ? 'selected' : ''}>${t.replace(':', 'h')}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field">
-        <label class="field-label">Fin de disponibilité</label>
-        <select class="input select" id="builder-window-end">
-          ${TIME_OPTIONS.map(t => `<option value="${t}" ${t === draft.windowEnd ? 'selected' : ''}>${t.replace(':', 'h')}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -1430,7 +1410,6 @@ function renderBuilderScreen() {
       <button class="btn btn-outline" id="btn-show-map" ${draft.stops.length === 0 ? 'disabled' : ''}>Afficher sur la carte</button>
     </div>
 
-    ${windowHtml}
     <div>${stopsHtml}</div>
 
 
@@ -2316,7 +2295,7 @@ function bindListEvents() {
       const t = state.tours.find(x => x.id === el.getAttribute('data-open-tour'));
       state.editingTourId = t.id;
       const buyer = state.buyers.find(b => b.id === t.buyerId);
-      state.draft = { buyer: buyer || null, date: t.date, time: t.time, windowEnd: t.windowEnd || '18:00', stops: JSON.parse(JSON.stringify(t.stops)) };
+      state.draft = { buyer: buyer || null, date: t.date, time: t.time, stops: JSON.parse(JSON.stringify(t.stops)) };
       state.dirty = false;
       state.screen = 'builder';
       render();
@@ -2476,8 +2455,6 @@ function bindBuilderEvents() {
   const addBtn1 = document.getElementById('btn-add-destination');
   if (addBtn1) addBtn1.onclick = openDestModal;
 
-  const windowEnd = document.getElementById('builder-window-end');
-  if (windowEnd) windowEnd.onchange = () => { state.draft.windowEnd = windowEnd.value; markDirtyIfSent(); render(); };
 
   const optimizeBtn = document.getElementById('btn-optimize');
   if (optimizeBtn) optimizeBtn.onclick = optimizeDraftStops;
