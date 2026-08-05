@@ -706,6 +706,41 @@ function shareTourWithBuyer(buyer) {
   state.dirty = false;
 }
 
+// Étape 1 → 3 : les demandes partent aux courtiers inscripteurs. Prévenir
+// l'acheteur au passage ne vaut que s'il est déjà connu ; sinon le partage
+// viendra à l'étape 2, une fois les visites confirmées.
+function sendTourToBrokers(notifyBuyer) {
+  const existing = currentTour();
+  const sharedAt = notifyBuyer && state.draft.buyer ? Date.now() : null;
+  if (existing) {
+    existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
+    existing.date = state.draft.date;
+    existing.time = state.draft.time;
+    existing.windowEnd = state.draft.windowEnd;
+    existing.stops = state.draft.stops;
+    existing.sentAt = Date.now();
+    existing.relancedAt = null;
+    existing.sharedAt = sharedAt;
+  } else {
+    const newId = uid();
+    state.tours.push({
+      id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
+      date: state.draft.date, time: state.draft.time, windowEnd: state.draft.windowEnd,
+      stops: state.draft.stops, sentAt: Date.now(), relancedAt: null, sharedAt,
+    });
+    state.editingTourId = newId;
+  }
+  state.dirty = false;
+  state.modal = null;
+  render();
+  showToast(
+    notifyBuyer
+      ? "Demandes de visites envoyées aux courtiers inscripteurs et à l'acheteur."
+      : 'Demandes de visites envoyées aux courtiers inscripteurs.',
+    'success'
+  );
+}
+
 function saveDraftToTour(notify, notifyBuyer = false) {
   const t = state.tours.find(x => x.id === state.editingTourId);
   if (!t) return;
@@ -1263,21 +1298,28 @@ function renderFooterActions(propertyCount, status, tally) {
   if (!flag('stagedFlow')) return renderLegacyFooterActions(propertyCount);
   const del = `<button class="btn btn-danger-outline" id="btn-delete-tour">${status === 'brouillon'
     ? 'Supprimer' : 'Supprimer ce tour et annuler les demandes de visites'}</button>`;
-  const shareLabel = state.draft.buyer ? 'Partager avec l\'acheteur' : 'Choisir l\'acheteur et partager';
+  // Le partage se fait sur l'écran de choix du client : ici on ne fait que s'y
+  // rendre, d'où « Choisir l'acheteur » et non « Choisir et partager ».
+  const shareLabel = state.draft.buyer ? 'Partager avec l\'acheteur' : 'Choisir l\'acheteur';
 
+  // Étape 1 : une seule sortie, envoyer aux courtiers pour validation.
+  // « Enregistrer » ne s'affiche plus en face : mettre les deux au même niveau
+  // laissait croire qu'il fallait choisir entre composer et envoyer. Le
+  // brouillon reste atteignable — quitter l'écran propose de l'enregistrer.
   if (status === 'brouillon') {
     return `
       <button class="btn btn-primary" id="btn-send-tour" ${propertyCount === 0 ? 'disabled' : ''}>
         Envoyer les demandes de visites
       </button>
-      <button class="btn btn-outline" id="btn-save-draft" ${propertyCount === 0 ? 'disabled' : ''}>Enregistrer</button>
       ${del}
     `;
   }
+  // Seul cas où enregistrer est un vrai choix : le tour est parti, on l'a
+  // modifié depuis, et on décide si les courtiers doivent être prévenus.
   if (state.dirty) {
     return `
       <button class="btn btn-primary" id="btn-save-update">Envoyer une mise à jour</button>
-      <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
+      <button class="btn btn-outline" id="btn-save-only">Enregistrer sans prévenir</button>
       ${del}
     `;
   }
@@ -1287,16 +1329,16 @@ function renderFooterActions(propertyCount, status, tally) {
       ${del}
     `;
   }
+  // Étape 2 : les visites sont confirmées, il reste à choisir le client.
   if (status === 'confirme') {
     return `
       <button class="btn btn-primary" id="btn-share-buyer">${shareLabel}</button>
-      <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
       ${del}
     `;
   }
-  // En validation. Le partage n'est ouvert que si le client accepte de diffuser
-  // un tour partiellement confirmé. Quand il ne l'est pas, on dit pourquoi
-  // plutôt que de laisser un bouton grisé sans explication.
+  // En attente des courtiers. Le partage n'est ouvert que si le client accepte
+  // de diffuser un tour partiellement confirmé ; sinon on dit pourquoi plutôt
+  // que de laisser un bouton grisé sans explication.
   const remaining = tally.waiting + tally.toHandle;
   return `
     ${flag('partialShare')
@@ -1304,7 +1346,6 @@ function renderFooterActions(propertyCount, status, tally) {
       : `<button class="btn btn-primary" disabled>${shareLabel}</button>
          <p class="footer-note">${remaining} visite${remaining > 1 ? 's' : ''} sans confirmation. Le partage s'ouvrira quand toutes les visites seront confirmées.</p>`}
     ${remaining ? `<button class="btn btn-outline" id="btn-relance">Relancer les courtiers</button>` : ''}
-    <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
     ${del}
   `;
 }
@@ -2282,7 +2323,10 @@ function bindBuilderEvents() {
       } else {
         setStopStatus(stop, next);
       }
-      markDirtyIfSent();
+      // Une réponse de courtier n'est pas une modification du tour par son
+      // auteur : elle s'enregistre telle quelle, sans déclencher « envoyer une
+      // mise à jour ».
+      persistAnswer();
       render();
       const msgs = {
         pending: `Demande envoyée à ${stop.courtier}, en attente de réponse.`,
@@ -2342,7 +2386,10 @@ function bindBuilderEvents() {
   };
 
   const sendBtn = document.getElementById('btn-send-tour');
-  if (sendBtn) sendBtn.onclick = () => { state.modal = { type: 'confirmSend' }; render(); };
+  if (sendBtn) sendBtn.onclick = () => {
+    if (state.draft.buyer) { state.modal = { type: 'confirmSend' }; render(); return; }
+    sendTourToBrokers(false);
+  };
 
   // Étape 4 : le partage passe par le choix du client. Quand le tour en a déjà
   // un, on repart quand même de cet écran — c'est là qu'on peut le changer.
@@ -2615,44 +2662,10 @@ function bindModalEvents() {
   if (state.modal.type === 'destination') bindDestinationModalEvents();
   if (state.modal.type === 'visitRequest') bindVisitRequestModalEvents();
   if (state.modal.type === 'confirmSend') {
-    const finalizeSend = (notifyBuyer) => {
-      const existing = currentTour();
-      // Prévenir l'acheteur à l'envoi ne vaut que s'il est déjà connu ; sinon le
-      // partage viendra à l'étape 4, une fois les visites confirmées.
-      const sharedAt = notifyBuyer && state.draft.buyer ? Date.now() : null;
-      if (existing) {
-        // Sending a saved draft: update it in place and mark it sent.
-        existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
-        existing.date = state.draft.date;
-        existing.time = state.draft.time;
-        existing.windowEnd = state.draft.windowEnd;
-        existing.stops = state.draft.stops;
-        existing.sentAt = Date.now();
-        existing.relancedAt = null;
-        existing.sharedAt = sharedAt;
-      } else {
-        const newId = uid();
-        state.tours.push({
-          id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
-          date: state.draft.date, time: state.draft.time, windowEnd: state.draft.windowEnd,
-          stops: state.draft.stops, sentAt: Date.now(), relancedAt: null, sharedAt,
-        });
-        state.editingTourId = newId;
-      }
-      state.dirty = false;
-      state.modal = null;
-      render();
-      showToast(
-        notifyBuyer
-          ? "Demandes de visites envoyées aux courtiers inscripteurs et à l'acheteur."
-          : 'Demandes de visites envoyées aux courtiers inscripteurs.',
-        'success'
-      );
-    };
     const brokerOnly = document.getElementById('btn-send-broker-only');
-    if (brokerOnly) brokerOnly.onclick = () => finalizeSend(false);
+    if (brokerOnly) brokerOnly.onclick = () => sendTourToBrokers(false);
     const brokerBuyer = document.getElementById('btn-send-broker-buyer');
-    if (brokerBuyer) brokerBuyer.onclick = () => finalizeSend(true);
+    if (brokerBuyer) brokerBuyer.onclick = () => sendTourToBrokers(true);
   }
   if (state.modal.type === 'confirmSendUpdate') {
     const brokerOnly = document.getElementById('btn-send-update-broker-only');
