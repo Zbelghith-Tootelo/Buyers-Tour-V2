@@ -391,6 +391,8 @@ const FEATURE_FLAGS = [
   { group: 'Optimisation et timing', id: 'insertFromBanner', label: 'Insérer depuis une notification', help: 'Le crayon d\'un bandeau de trajet permet d\'insérer une pause ou un arrêt personnalisé.', default: false, wired: false },
 
   { group: 'Intégrations', id: 'calendarSync', label: 'Synchroniser avec mon calendrier', help: 'Bouton d\'export vers Google Agenda. Retiré à la demande des clients.', default: false, wired: true },
+
+  { group: 'Démo', id: 'simulateConfirmation', label: 'Simuler la réponse des courtiers', help: 'Rend le statut de chaque visite cliquable pour basculer entre « À confirmer » et « Confirmée ». Outil de démo : en production, seul le courtier inscripteur confirme.', default: true, wired: true },
 ];
 
 const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags';
@@ -476,6 +478,20 @@ function reflowVisitTimes(draft) {
     lastProperty = stop;
   });
   return shifted;
+}
+
+// Confirming a visit locks it at the time it currently occupies in the schedule.
+// Releasing it has to clear that time too: a stale lockedStart means a later
+// re-confirmation would silently reuse the old hour instead of the stop's
+// current position in the tour.
+function setStopConfirmation(stop, confirmed) {
+  stop.status = confirmed ? 'confirmed' : 'pending';
+  stop.locked = confirmed;
+  if (!confirmed) { stop.lockedStart = null; return; }
+  if (!stop.lockedStart) {
+    const row = computeSchedule(state.draft).find(r => r.stop.id === stop.id);
+    if (row) stop.lockedStart = minutesToLabel(row.start).replace('h', ':');
+  }
 }
 
 function optimizeDraftStops() {
@@ -863,9 +879,17 @@ function renderBuilderScreen() {
           </div>
         </div>`;
     } else {
-      const statusHtml = stop.status === 'confirmed'
+      const statusLabel = stop.status === 'confirmed'
         ? `<span class="status-ok">Confirmée</span>`
         : `<span class="status-pending">À confirmer avec le courtier inscripteur</span>`;
+      // The simulate control sits on the status itself rather than adding a
+      // fourth icon to the action row: it acts on the thing it changes, and the
+      // row is already carrying three buttons.
+      const statusHtml = !flag('simulateConfirmation') ? statusLabel : `
+        <button class="status-sim" data-sim-status="${stop.id}"
+          title="Simuler la réponse du courtier inscripteur : ${stop.status === 'confirmed' ? 'repasser en attente' : 'confirmer la visite'}">
+          ${statusLabel}${icon('sync')}
+        </button>`;
       card = `
         <div class="stop-card" draggable="true" data-stop-id="${stop.id}">
           <span class="drag-handle">${icon('drag')}</span>
@@ -1806,6 +1830,21 @@ function bindBuilderEvents() {
     };
   });
 
+  document.querySelectorAll('[data-sim-status]').forEach(el => {
+    el.onclick = () => {
+      const stop = state.draft.stops.find(s => s.id === el.getAttribute('data-sim-status'));
+      if (!stop) return;
+      const confirmed = stop.status !== 'confirmed';
+      setStopConfirmation(stop, confirmed);
+      markDirtyIfSent();
+      render();
+      showToast(confirmed
+        ? `Visite confirmée par ${stop.courtier} à ${stop.lockedStart.replace(':', 'h')}.`
+        : `${stop.courtier} n'a pas encore confirmé cette visite.`,
+        confirmed ? 'success' : 'default');
+    };
+  });
+
   const sendBtn = document.getElementById('btn-send-tour');
   if (sendBtn) sendBtn.onclick = () => { state.modal = { type: 'confirmSend' }; render(); };
 
@@ -2131,14 +2170,8 @@ function bindModalEvents() {
     const saveStop = document.getElementById('btn-save-edit-stop');
     if (saveStop) saveStop.onclick = () => {
       const stop = state.draft.stops.find(s => s.id === state.modal.stopId);
-      stop.status = document.getElementById('edit-stop-status').value;
       stop.duration = +document.getElementById('edit-stop-duration').value;
-      stop.locked = stop.status === 'confirmed';
-      if (stop.locked && !stop.lockedStart) {
-        const rows = computeSchedule(state.draft);
-        const r = rows.find(r => r.stop.id === stop.id);
-        stop.lockedStart = minutesToLabel(r.start).replace('h', ':');
-      }
+      setStopConfirmation(stop, document.getElementById('edit-stop-status').value === 'confirmed');
       state.modal = null;
       markDirtyIfSent();
       render();

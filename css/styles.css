@@ -460,6 +460,23 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 .stop-meta .status-pending { color: var(--attention); font-weight: 600; }
 .stop-meta .status-visited { color: var(--succes); font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
 .stop-meta .status-visited svg { width: 12px; height: 12px; }
+
+/* Demo control: clicking the status simulates the listing broker's answer. The
+   dashed underline marks it as a simulation affordance rather than a real
+   business action — only the listing broker confirms a visit. */
+.status-sim {
+  display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline;
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  border-bottom: 1px dashed var(--bordures);
+}
+.status-sim svg { width: 11px; height: 11px; color: var(--texte-secondaire); opacity: 0; transition: opacity 120ms ease-out; }
+.status-sim:hover svg, .status-sim:focus-visible svg { opacity: 1; }
+.status-sim:hover { border-bottom-color: var(--texte-secondaire); }
+.status-sim:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: 2px; border-radius: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .status-sim svg { transition: none; }
+}
 .stop-meta .dot { margin: 0 5px; }
 
 .stop-actions { display: flex; gap: 6px; flex-shrink: 0; }
