@@ -1483,10 +1483,12 @@ function renderFooterActions(propertyCount, status, tally) {
   }
   // En attente des courtiers. Le partage n'est ouvert que si le client accepte
   // de diffuser un tour partiellement confirmé ; sinon on dit pourquoi plutôt
-  // que de laisser un bouton grisé sans explication.
+  // que de laisser un bouton grisé sans explication. Le décompte des réponses
+  // est porté par le panneau de validation en haut de l'écran : le répéter sur
+  // le bouton le transformait en indicateur alors qu'il doit nommer une action.
   const remaining = tally.waiting + tally.toHandle;
   return `
-    <button class="btn btn-primary" id="btn-share-buyer">${shareLabel} (${tally.confirmed}/${tally.total})</button>
+    <button class="btn btn-primary" id="btn-share-buyer">${shareLabel}</button>
     ${remaining ? `<button class="btn btn-outline" id="btn-relance">Relancer les courtiers</button>` : ''}
     ${del}
   `;
