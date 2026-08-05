@@ -397,19 +397,47 @@ function markDirtyIfSent() {
   if (t && t.sentAt) state.dirty = true;
 }
 
+// After a geographic reorder the previously agreed times no longer match the
+// driving order, so the schedule is reflowed from the tour start: each visit
+// begins when you actually arrive. Stops carrying an agreed time keep it as a
+// field but get the recomputed value, which is what clears the conflict banners.
+// Returns how many visit times moved, so the user can be told.
+function reflowVisitTimes(draft) {
+  let cursor = timeToMinutes(draft.time);
+  let lastProperty = null;
+  let shifted = 0;
+  draft.stops.forEach((stop, i) => {
+    const prev = draft.stops[i - 1];
+    if (prev) {
+      const travel = travelBetween(prev, stop, lastProperty);
+      if (travel) cursor += travel;
+    }
+    if (stop.type === 'pause') { cursor += stop.duration; return; }
+    if (stop.locked && stop.lockedStart) {
+      const next = minutesToLabel(cursor).replace('h', ':');
+      if (next !== stop.lockedStart) shifted++;
+      stop.lockedStart = next;
+    }
+    cursor += stop.duration;
+    lastProperty = stop;
+  });
+  return shifted;
+}
+
 function optimizeDraftStops() {
   const pauses = state.draft.stops.filter(s => s.type === 'pause');
   const props = state.draft.stops.filter(s => s.type === 'property');
-  let ordered, message;
+  let message;
   if (flag('geoOptimize')) {
-    ordered = optimizeByGeography(props);
-    const { km, min } = routeTotals(ordered);
-    message = `Tour optimisé par distance : ${formatKm(km)} et ${formatMinutes(min)} de trajet.`;
+    state.draft.stops = [...optimizeByGeography(props), ...pauses];
+    const shifted = reflowVisitTimes(state.draft);
+    const { km, min } = routeTotals(state.draft.stops);
+    message = `Tour optimisé : ${formatKm(km)} et ${formatMinutes(min)} de trajet.`
+      + (shifted ? ` ${shifted} heure${shifted > 1 ? 's' : ''} de visite ajustée${shifted > 1 ? 's' : ''}.` : '');
   } else {
-    ordered = props.slice().sort((a, b) => a.address.localeCompare(b.address));
+    state.draft.stops = [...props.slice().sort((a, b) => a.address.localeCompare(b.address)), ...pauses];
     message = 'Tour réordonné par ordre alphabétique d\'adresse.';
   }
-  state.draft.stops = [...ordered, ...pauses];
   markDirtyIfSent();
   render();
   showToast(message, 'success');
@@ -1767,6 +1795,15 @@ function bindBuilderEvents() {
    reorder; changing the set of stops refits the bounds instead. */
 const tourMap = { instance: null, center: null, zoom: null, sig: null };
 
+// Each leg gets its own colour, running green → blue → navy so the direction of
+// the tour reads at a glance. Leaflet draws no arrowheads without a plugin, and
+// the progression does that job while staying inside the brand palette.
+const ROUTE_LEG_COLORS = ['#28A745', '#0E8F8F', '#0066DC', '#3B4E9B', '#213163'];
+function legColor(i, total) {
+  if (total <= 1) return ROUTE_LEG_COLORS[0];
+  return ROUTE_LEG_COLORS[Math.round((i / (total - 1)) * (ROUTE_LEG_COLORS.length - 1))];
+}
+
 function destroyTourMap() {
   if (!tourMap.instance) return;
   tourMap.center = tourMap.instance.getCenter();
@@ -1794,23 +1831,38 @@ function buildTourMap() {
 
   const latlngs = props.map(s => { const c = coordsFor(s); return [c.lat, c.lng]; });
 
-  if (latlngs.length >= 2) {
-    L.polyline(latlngs, { color: '#0066DC', weight: 4, opacity: 0.9 }).addTo(map);
+  // One polyline per leg rather than a single line, so each segment carries its
+  // own colour and its travel time label is unambiguously tied to it.
+  const legCount = props.length - 1;
+
+  // White casing under every leg first, so the route stays legible over busy
+  // tiles. All casings go down before any coloured line, otherwise a later
+  // casing would paint over the previous leg at the junction.
+  for (let i = 0; i < legCount; i++) {
+    const a = coordsFor(props[i]), b = coordsFor(props[i + 1]);
+    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
+      color: '#FFFFFF', weight: 8, opacity: 0.85, interactive: false,
+    }).addTo(map);
+  }
+
+  for (let i = 0; i < legCount; i++) {
+    const a = coordsFor(props[i]), b = coordsFor(props[i + 1]);
+    const color = legColor(i, legCount);
+    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color, weight: 4.5, opacity: 1 }).addTo(map);
+
     // Travel time sits on the leg it belongs to, so the cost of the ordering is
-    // readable straight off the map rather than only in the list below. Only
-    // shown in geo mode: otherwise the schedule uses mock times and the map
-    // would contradict the travel chips in the list.
-    if (flag('geoOptimize')) for (let i = 1; i < props.length; i++) {
-      const a = coordsFor(props[i - 1]), b = coordsFor(props[i]);
-      L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], {
-        interactive: false,
-        icon: L.divIcon({
-          className: 'leg-label-wrap',
-          html: `<span class="leg-label">${geoTravelMinutes(a, b)} min</span>`,
-          iconSize: [54, 20], iconAnchor: [27, 10],
-        }),
-      }).addTo(map);
-    }
+    // readable straight off the map rather than only in the list below. Only in
+    // geo mode: otherwise the schedule uses mock times and the map would
+    // contradict the travel chips in the list.
+    if (!flag('geoOptimize')) continue;
+    L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], {
+      interactive: false,
+      icon: L.divIcon({
+        className: 'leg-label-wrap',
+        html: `<span class="leg-label" style="color:${color};border-color:${color};">${geoTravelMinutes(a, b)} min</span>`,
+        iconSize: [54, 20], iconAnchor: [27, 10],
+      }),
+    }).addTo(map);
   }
 
   props.forEach((s, i) => {
