@@ -285,7 +285,7 @@ function formatMinutes(min) {
   return m ? `${h} h ${String(m).padStart(2, '0')}` : `${h} h`;
 }
 
-// Properties already selected in MLS Matrix and sent to the "Cart" of this app
+// Properties already selected in the MLS and sent to this app's Panier
 let mlsCart = [
   { mls: '18234671', address: '500 Rue d\'Avaugour, Boucherville, QC J4B 5E7' },
   { mls: '18234733', address: '123 Avenue des Étoiles, Montréal, QC H3C 1A2' },
@@ -396,7 +396,7 @@ function seedTours() {
 // behind a flag. `wired: false` means the feature is specced but not built yet;
 // the panel lists it as "à venir" rather than offering a toggle that does nothing.
 const FEATURE_FLAGS = [
-  { group: 'Sources de propriétés', id: 'mlsCart', label: 'Panier et recherche MLS', help: 'Onglets Panier et MLS dans « Ajouter une destination ». Désactivé, on obtient le comportement ImmoContact sans MLS.', default: true, wired: true },
+  { group: 'Sources de propriétés', id: 'mlsCart', label: 'Panier et recherche MLS', help: 'Onglets Panier et MLS dans « Ajouter une destination ». Désactivé, on obtient le comportement ImmoContact, sans catalogue MLS.', default: false, wired: true },
   { group: 'Sources de propriétés', id: 'customAddress', label: 'Adresse personnalisée', help: 'Ajouter un arrêt à une adresse libre, hors MLS.', default: true, wired: false },
   { group: 'Sources de propriétés', id: 'propertyViaBrokerOnly', label: 'Propriété via courtier uniquement (TB)', help: 'Sur TB, une propriété ne peut être ajoutée qu\'après avoir sélectionné un courtier.', default: false, wired: false },
 
@@ -409,15 +409,59 @@ const FEATURE_FLAGS = [
   { group: 'Optimisation et timing', id: 'timingHint', label: 'Rappel des paliers de 15 min', help: 'Notification bleue indiquant que le timing est personnalisable par paliers de 15 minutes.', default: false, wired: false },
   { group: 'Optimisation et timing', id: 'insertFromBanner', label: 'Insérer depuis une notification', help: 'Le crayon d\'un bandeau de trajet ou d\'alerte insère une étape à cet endroit précis du tour : pause, arrêt personnalisé ou propriété. Désactivé, le crayon ouvre la modification de la visite suivante.', default: true, wired: true },
 
-  { group: 'Intégrations', id: 'calendarSync', label: 'Synchroniser avec mon calendrier', help: 'Bouton d\'export vers Google Agenda. Retiré à la demande des clients.', default: false, wired: true },
-
   { group: 'Démo', id: 'simulateConfirmation', label: 'Simuler la réponse des courtiers', help: 'Rend le statut de chaque visite cliquable pour basculer entre « À confirmer » et « Confirmée ». Outil de démo : en production, seul le courtier inscripteur confirme.', default: true, wired: true },
 ];
+
+// Une seule API Buyer's Tour sert les deux plateformes : ce qui les distingue
+// tient entièrement dans ce jeu de flags. Les presets évitent d'aligner une
+// dizaine d'interrupteurs à la main avant chaque démo — un clic donne le
+// comportement complet d'une plateforme, les interrupteurs restent disponibles
+// pour explorer les variantes à partir de là.
+const PLATFORMS = [
+  { id: 'immocontact', label: 'ImmoContact', help: 'Adresse libre, sans catalogue MLS ni Panier.' },
+  { id: 'touchbase', label: 'Touchbase', help: 'Catalogue MLS et Panier ; la propriété passe par un courtier.' },
+];
+
+// Chaque preset décrit la plateforme en entier, y compris les comportements pas
+// encore construits : il documente la cible et s'appliquera tout seul au fur et
+// à mesure que les flags passent en `wired`.
+const PLATFORM_PRESETS = {
+  immocontact: {
+    mlsCart: false, customAddress: true, propertyViaBrokerOnly: false,
+    stagedFlow: true, buyerAtEnd: true, partialShare: true, multishowing: false,
+    geoOptimize: true, timingHint: true, insertFromBanner: true,
+    simulateConfirmation: true,
+  },
+  touchbase: {
+    mlsCart: true, customAddress: false, propertyViaBrokerOnly: true,
+    stagedFlow: true, buyerAtEnd: true, partialShare: true, multishowing: false,
+    geoOptimize: true, timingHint: true, insertFromBanner: true,
+    simulateConfirmation: true,
+  },
+};
+
+// Appliquer ne touche qu'aux flags branchés : les autres n'ont aucun
+// comportement à piloter, et les activer en douce donnerait un panneau qui ment
+// sur ce que fait le build.
+function applyPlatformPreset(id) {
+  const preset = PLATFORM_PRESETS[id];
+  if (!preset) return;
+  FEATURE_FLAGS.forEach(f => { if (f.wired && f.id in preset) state.flags[f.id] = preset[f.id]; });
+  saveFlags();
+}
+
+// Renvoie la plateforme dont le preset correspond aux flags actuels, ou null
+// dès qu'un interrupteur a été bougé à la main.
+function currentPlatform() {
+  const p = PLATFORMS.find(p => FEATURE_FLAGS.every(f =>
+    !f.wired || !(f.id in PLATFORM_PRESETS[p.id]) || state.flags[f.id] === PLATFORM_PRESETS[p.id][f.id]));
+  return p ? p.id : null;
+}
 
 // Saved values win over the defaults above, so bump the suffix whenever a
 // `default` changes — otherwise anyone who already toggled a flag keeps the old
 // default for the new one and never sees the feature.
-const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags-v2';
+const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags-v3';
 
 function loadFlags() {
   const flags = {};
@@ -977,23 +1021,16 @@ function renderFooterActions(propertyCount) {
   const tour = currentTour();
   const isSent = !!(tour && tour.sentAt);
 
-  const gcalBtn = !flag('calendarSync') ? '' : `
-    <button class="btn btn-outline" id="btn-gcal" ${propertyCount === 0 ? 'disabled' : ''}>
-      ${icon('sync')} Synchroniser avec mon calendrier
-    </button>`;
-
   if (isSent && state.dirty) {
     return `
       <button class="btn btn-primary" id="btn-save-update">Envoyer une mise à jour</button>
       <button class="btn btn-outline" id="btn-save-only">Enregistrer</button>
-      ${gcalBtn}
       <button class="btn btn-danger-outline" id="btn-delete-tour">Supprimer ce tour et annuler les demandes de visites</button>
     `;
   }
   if (isSent) {
     return `
       <button class="btn btn-primary" id="btn-share-buyer">Partager avec l'acheteur</button>
-      ${gcalBtn}
       <button class="btn btn-danger-outline" id="btn-delete-tour">Supprimer ce tour et annuler les demandes de visites</button>
     `;
   }
@@ -1003,34 +1040,8 @@ function renderFooterActions(propertyCount) {
       Envoyer les demandes de visites
     </button>
     <button class="btn btn-outline" id="btn-save-draft" ${propertyCount === 0 ? 'disabled' : ''}>Enregistrer</button>
-    ${gcalBtn}
     <button class="btn btn-danger-outline" id="btn-delete-tour">Supprimer</button>
   `;
-}
-
-// Google Calendar "create event" link for the tour currently in the builder.
-function googleCalendarUrl() {
-  const d = state.draft;
-  const rows = computeSchedule(d);
-  const startMin = timeToMinutes(d.time);
-  const last = rows[rows.length - 1];
-  const endMin = last ? last.start + last.stop.duration : startMin + 60;
-  const dateStr = d.date.replace(/-/g, '');
-  const fmt = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}${String(m % 60).padStart(2, '0')}00`;
-  const propRows = rows.filter(r => r.stop.type === 'property');
-  const details = [
-    `Tour de visites avec ${d.buyer.prenom} ${d.buyer.nom}`,
-    '',
-    ...propRows.map((r, i) => `${i + 1}. ${r.stop.address} — ${minutesToLabel(r.start)} à ${minutesToLabel(r.start + r.stop.duration)}`),
-  ].join('\n');
-  const params = new URLSearchParams({
-    action: 'TEMPLATE',
-    text: `Tour de visites — ${d.buyer.prenom} ${d.buyer.nom}`,
-    dates: `${dateStr}T${fmt(startMin)}/${dateStr}T${fmt(endMin)}`,
-    details,
-    location: propRows[0] ? propRows[0].stop.address : '',
-  });
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 /* ---------------- Modal rendering ---------------- */
@@ -1227,6 +1238,7 @@ function renderConfirmModal(title, body, confirmId) {
 }
 
 function renderFlagsModal() {
+  const platform = currentPlatform();
   const groups = [];
   FEATURE_FLAGS.forEach(f => {
     let g = groups.find(x => x.name === f.group);
@@ -1240,6 +1252,17 @@ function renderFlagsModal() {
         <div class="modal-head"><h2>Feature flags</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
         <div class="modal-body">
           <p class="helper-text" style="margin-top:0;">Le Buyer's Tour est développé comme une API autonome. Ces interrupteurs simulent les comportements propres à chaque plateforme sans changer de build.</p>
+          <p class="section-label" style="margin-top:18px;">Plateforme</p>
+          <div class="platform-switch">
+            ${PLATFORMS.map(p => `
+              <button class="platform-opt ${platform === p.id ? 'active' : ''}" data-platform="${p.id}" aria-pressed="${platform === p.id ? 'true' : 'false'}">
+                <span class="platform-opt-label">${esc(p.label)}</span>
+                <span class="platform-opt-help">${esc(p.help)}</span>
+              </button>`).join('')}
+          </div>
+          <p class="helper-text platform-note">${platform
+            ? 'Le preset n\'agit que sur les comportements déjà branchés ; ceux marqués « à venir » sont listés pour mémoire.'
+            : 'Réglage personnalisé : les interrupteurs ne correspondent à aucune plateforme. Cliquez sur l\'une des deux pour y revenir.'}</p>
           ${groups.map(g => `
             <p class="section-label" style="margin-top:18px;">${esc(g.name)}</p>
             ${g.items.map(f => `
@@ -1321,9 +1344,9 @@ function renderDestinationModal() {
     `;
   } else if (tab === 'cart') {
     body = `
-      <div class="info-banner">${icon('info')} <span>Ces propriétés proviennent de votre sélection sur MLS Matrix.</span></div>
+      <div class="info-banner">${icon('info')} <span>Ces propriétés proviennent de votre sélection MLS.</span></div>
       <div style="margin-top:10px;">
-        ${mlsCart.map(p => resultRow(p, addedMls)).join('') || '<p class="helper-text" style="margin-top:14px;">Votre cart MLS Matrix est vide.</p>'}
+        ${mlsCart.map(p => resultRow(p, addedMls)).join('') || '<p class="helper-text" style="margin-top:14px;">Votre panier MLS est vide.</p>'}
       </div>
     `;
   } else if (tab === 'arret') {
@@ -1905,8 +1928,6 @@ function bindBuilderEvents() {
   const shareBtn = document.getElementById('btn-share-buyer');
   if (shareBtn) shareBtn.onclick = () => showToast('Le tour a été partagé avec l\'acheteur.', 'success');
 
-  const gcalBtn = document.getElementById('btn-gcal');
-  if (gcalBtn) gcalBtn.onclick = () => window.open(googleCalendarUrl(), '_blank', 'noopener');
 
   const saveDraftBtn = document.getElementById('btn-save-draft');
   if (saveDraftBtn) saveDraftBtn.onclick = () => {
@@ -2157,6 +2178,14 @@ function bindModalEvents() {
   document.addEventListener('keydown', escHandler);
 
   if (state.modal.type === 'flags') {
+    document.querySelectorAll('[data-platform]').forEach(el => {
+      el.onclick = () => {
+        const id = el.getAttribute('data-platform');
+        applyPlatformPreset(id);
+        render();
+        showToast(`Comportement ${PLATFORMS.find(p => p.id === id).label} appliqué.`, 'success');
+      };
+    });
     document.querySelectorAll('[data-flag]').forEach(el => {
       el.onclick = () => {
         const id = el.getAttribute('data-flag');

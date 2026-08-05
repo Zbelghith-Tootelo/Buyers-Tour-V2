@@ -177,6 +177,26 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 .flag-btn:hover { background: var(--lumiere-principale); color: var(--bleu-secondaire); border-color: var(--bleu-secondaire); }
 .flag-btn svg { width: 14px; height: 14px; }
 
+/* Choix de plateforme : deux cartes plutôt qu'un segmented control, pour que la
+   phrase d'explication tienne dans la cible cliquable. La sélection ne repose
+   pas sur la seule couleur — la bordure épaissit et aria-pressed suit. */
+.platform-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
+.platform-opt {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; cursor: pointer;
+  background: var(--blanc); border: 1.5px solid var(--bordures); border-radius: var(--radius-lg);
+  padding: 12px 14px; min-height: 44px; font-family: inherit;
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+}
+.platform-opt:hover { border-color: var(--bleu-secondaire); }
+.platform-opt:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: 2px; }
+.platform-opt.active { border-color: var(--bleu-principal); border-width: 2px; background: var(--lumiere-principale); padding: 11.5px 13.5px; }
+.platform-opt-label { font-size: 14.5px; font-weight: 700; color: var(--bleu-principal); }
+.platform-opt-help { font-size: 12.5px; line-height: 1.4; color: var(--texte-secondaire); }
+
+@media (max-width: 768px) {
+  .platform-switch { grid-template-columns: 1fr; }
+}
+
 .flag-row { display: flex; align-items: flex-start; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--bordures); }
 .flag-row:last-child { border-bottom: none; }
 .flag-row-text { flex: 1; min-width: 0; }
@@ -698,6 +718,9 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 .breadcrumb-back svg { width: 15px; height: 15px; }
 
 .helper-text { font-size: 13px; color: var(--texte-secondaire); margin: -10px 0 18px; }
+/* .helper-text remonte de 10px pour se coller sous un champ ; sous les cartes de
+   plateforme, cette remontée les chevauche. */
+.helper-text.platform-note { margin-top: 10px; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #D5DBE3; border-radius: 999px; }
