@@ -1302,15 +1302,15 @@ function renderFooterActions(propertyCount, status, tally) {
   // rendre, d'où « Choisir l'acheteur » et non « Choisir et partager ».
   const shareLabel = state.draft.buyer ? 'Partager avec l\'acheteur' : 'Choisir l\'acheteur';
 
-  // Étape 1 : une seule sortie, envoyer aux courtiers pour validation.
-  // « Enregistrer » ne s'affiche plus en face : mettre les deux au même niveau
-  // laissait croire qu'il fallait choisir entre composer et envoyer. Le
-  // brouillon reste atteignable — quitter l'écran propose de l'enregistrer.
+  // Étape 1 : envoyer aux courtiers est l'action attendue, enregistrer met le
+  // tour de côté pour l'envoyer plus tard. Le second est en secondaire pour que
+  // la sortie normale reste évidente.
   if (status === 'brouillon') {
     return `
       <button class="btn btn-primary" id="btn-send-tour" ${propertyCount === 0 ? 'disabled' : ''}>
         Envoyer les demandes de visites
       </button>
+      <button class="btn btn-outline" id="btn-save-draft" ${propertyCount === 0 ? 'disabled' : ''}>Enregistrer</button>
       ${del}
     `;
   }
