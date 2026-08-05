@@ -167,11 +167,65 @@ function haversineKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-// ~40 km/h effective urban speed plus a fixed buffer for parking and handoff,
-// rounded to the 5-minute grid the scheduler works on.
+/* ----- Road routing (OSRM) -----
+   The straight line between two stops is not what anyone drives, so the route
+   geometry is fetched from OSRM's public demo server, which also returns real
+   driving distances and durations. The app renders synchronously, so results
+   are cached and the crow-flies estimate below is used until they land — and
+   permanently if the request fails. Only mock listing coordinates are sent. */
+const routeGeometry = new Map(); // route signature -> { status, legs: [[lat,lng], ...][] }
+const osrmLegMinutes = new Map(); // "from>to" -> driving minutes
+const osrmLegKm = new Map();      // "from>to" -> driving km
+
+const coordKey = c => `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`;
+const legKey = (a, b) => `${coordKey(a)}>${coordKey(b)}`;
+
+function routeSignature(props) {
+  return props.map(s => coordKey(coordsFor(s))).join(';');
+}
+
+async function ensureRouteGeometry(props) {
+  if (props.length < 2) return;
+  const sig = routeSignature(props);
+  if (routeGeometry.has(sig)) return;
+  routeGeometry.set(sig, { status: 'loading' });
+
+  try {
+    const path = props.map(s => { const c = coordsFor(s); return `${c.lng},${c.lat}`; }).join(';');
+    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson&steps=true`);
+    const data = await res.json();
+    if (data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error(data.code || 'no route');
+
+    const legs = data.routes[0].legs.map((leg, i) => {
+      // Per-leg geometry has to be stitched from the steps: the route only
+      // carries one geometry for the whole path, and each leg needs its own
+      // so it can keep its colour.
+      const coords = leg.steps.flatMap(st => st.geometry.coordinates.map(([lng, lat]) => [lat, lng]));
+      const key = legKey(coordsFor(props[i]), coordsFor(props[i + 1]));
+      osrmLegMinutes.set(key, Math.max(5, Math.round(leg.duration / 60 / 5) * 5));
+      osrmLegKm.set(key, leg.distance / 1000);
+      return coords;
+    });
+    routeGeometry.set(sig, { status: 'ok', legs });
+  } catch (e) {
+    routeGeometry.set(sig, { status: 'error' });
+  }
+  if (state.screen === 'map') render();
+}
+
+// Real driving time when OSRM has answered for this pair, otherwise a
+// crow-flies estimate: ~40 km/h effective urban speed plus a buffer for parking
+// and handoff, rounded to the 5-minute grid the scheduler works on.
 function geoTravelMinutes(a, b) {
+  const known = osrmLegMinutes.get(legKey(a, b));
+  if (known != null) return known;
   const km = haversineKm(a, b);
   return Math.max(5, Math.round((km / 40 * 60 + 5) / 5) * 5);
+}
+
+function geoTravelKm(a, b) {
+  const known = osrmLegKm.get(legKey(a, b));
+  return known != null ? known : haversineKm(a, b);
 }
 
 // Greedy nearest-neighbour from the first stop, which stays the anchor: the
@@ -198,7 +252,7 @@ function routeTotals(stops) {
   let km = 0, min = 0;
   for (let i = 1; i < props.length; i++) {
     const a = coordsFor(props[i - 1]), b = coordsFor(props[i]);
-    km += haversineKm(a, b);
+    km += geoTravelKm(a, b);
     min += geoTravelMinutes(a, b);
   }
   return { km, min, count: props.length };
@@ -1311,6 +1365,12 @@ function renderMapScreen() {
   }).join('');
 
   const canOptimize = totals.count >= 2;
+  // Kick the routing off here rather than in buildTourMap: ensureRouteGeometry
+  // marks the signature 'loading' synchronously, before its first await, so the
+  // status read just below is accurate on the very first paint.
+  const props = draft.stops.filter(s => s.type === 'property');
+  ensureRouteGeometry(props);
+  const routeStatus = (routeGeometry.get(routeSignature(props)) || {}).status;
 
   return `
     <div id="leaflet-map" class="tour-map"></div>
@@ -1321,6 +1381,8 @@ function renderMapScreen() {
         <span class="route-summary-item"><strong>${formatKm(totals.km)}</strong> de trajet</span>
         <span class="route-summary-sep"></span>
         <span class="route-summary-item"><strong>${formatMinutes(totals.min)}</strong> sur la route</span>
+        ${routeStatus === 'loading' ? `<span class="route-summary-note">Calcul de l'itinéraire routier…</span>` : ''}
+        ${routeStatus === 'error' ? `<span class="route-summary-note">Distances estimées à vol d'oiseau — service de routage indisponible.</span>` : ''}
       </div>
     ` : ''}
 
@@ -1835,27 +1897,37 @@ function buildTourMap() {
   // own colour and its travel time label is unambiguously tied to it.
   const legCount = props.length - 1;
 
+  // Road-following geometry when OSRM has answered, straight lines until then.
+  const routed = routeGeometry.get(routeSignature(props));
+  const legPath = (i) => {
+    if (routed && routed.status === 'ok' && routed.legs[i] && routed.legs[i].length > 1) return routed.legs[i];
+    const a = coordsFor(props[i]), b = coordsFor(props[i + 1]);
+    return [[a.lat, a.lng], [b.lat, b.lng]];
+  };
+
   // White casing under every leg first, so the route stays legible over busy
   // tiles. All casings go down before any coloured line, otherwise a later
   // casing would paint over the previous leg at the junction.
   for (let i = 0; i < legCount; i++) {
-    const a = coordsFor(props[i]), b = coordsFor(props[i + 1]);
-    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
-      color: '#FFFFFF', weight: 8, opacity: 0.85, interactive: false,
+    L.polyline(legPath(i), {
+      color: '#FFFFFF', weight: 9, opacity: 0.9, interactive: false, lineJoin: 'round', lineCap: 'round',
     }).addTo(map);
   }
 
   for (let i = 0; i < legCount; i++) {
     const a = coordsFor(props[i]), b = coordsFor(props[i + 1]);
     const color = legColor(i, legCount);
-    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color, weight: 4.5, opacity: 1 }).addTo(map);
+    L.polyline(legPath(i), { color, weight: 5, opacity: 1, lineJoin: 'round', lineCap: 'round' }).addTo(map);
 
     // Travel time sits on the leg it belongs to, so the cost of the ordering is
     // readable straight off the map rather than only in the list below. Only in
     // geo mode: otherwise the schedule uses mock times and the map would
     // contradict the travel chips in the list.
     if (!flag('geoOptimize')) continue;
-    L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], {
+    // Sit the label on the route itself: with road geometry the midpoint of the
+    // straight line often falls nowhere near the path actually driven.
+    const path = legPath(i);
+    L.marker(path[Math.floor(path.length / 2)], {
       interactive: false,
       icon: L.divIcon({
         className: 'leg-label-wrap',
@@ -1877,9 +1949,16 @@ function buildTourMap() {
     }).addTo(map).bindPopup(`<strong>${esc(s.address)}</strong>`);
   });
 
-  if (sameSet) map.setView(tourMap.center, tourMap.zoom);
-  else if (latlngs.length) map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40], maxZoom: 14 });
-  else map.setView([45.5019, -73.5674], 11);
+  if (sameSet) {
+    map.setView(tourMap.center, tourMap.zoom);
+  } else if (latlngs.length) {
+    // Fit the road path, not just the pins, so no part of the route is cropped.
+    const bounds = L.latLngBounds(latlngs);
+    if (routed && routed.status === 'ok') routed.legs.forEach(leg => leg.forEach(pt => bounds.extend(pt)));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  } else {
+    map.setView([45.5019, -73.5674], 11);
+  }
 
   map.invalidateSize();
 }

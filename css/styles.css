@@ -665,6 +665,7 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 }
 .route-summary-item strong { color: var(--texte-principal); font-weight: 700; }
 .route-summary-sep { width: 1px; height: 14px; background: var(--bordures); }
+.route-summary-note { font-size: 12.5px; font-style: italic; color: var(--texte-secondaire); }
 
 /* ---------- Misc ---------- */
 
