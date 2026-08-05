@@ -628,25 +628,43 @@ body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { 
 .toast.success .toast-icon { background: #1AA41D; }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
-/* ---------- Map placeholder ---------- */
+/* ---------- Tour map (Leaflet) ---------- */
 
-.map-placeholder {
-  height: 380px; border-radius: var(--radius-lg);
-  position: relative; overflow: hidden; border: 1px solid var(--bordures);
+.tour-map {
+  height: 380px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--bordures);
   background: #E9EEF4;
+  z-index: 0; /* keep Leaflet panes below the app's modal overlay */
 }
-.map-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.map-routes { position: absolute; inset: 0; width: 100%; height: 100%; }
-.map-route-main { fill: none; stroke: var(--bleu-secondaire); stroke-width: 0.9; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-width: 3.5px; }
-.map-route-alt { fill: none; stroke: var(--attention); stroke-width: 2.5px; vector-effect: non-scaling-stroke; stroke-dasharray: 7 6; stroke-linecap: round; opacity: 0.85; }
 
-.map-legend { display: flex; gap: 20px; margin-top: 12px; }
-.map-legend-item { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texte-secondaire); font-weight: 500; }
-.map-legend-line { display: inline-block; width: 28px; height: 0; border-top: 3.5px solid var(--bleu-secondaire); border-radius: 2px; }
-.map-legend-line.alt { border-top-style: dashed; border-top-width: 3px; border-top-color: var(--attention); }
-.map-pin { position: absolute; width: 30px; height: 30px; margin-left: -15px; margin-top: -34px; border-radius: 50% 50% 50% 0; background: var(--rouge-principal); transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; color: var(--blanc); font-size: 12px; font-weight: 700; box-shadow: var(--shadow-base); }
-.map-pin span { transform: rotate(45deg); }
-.map-route-dot { fill: var(--blanc); stroke: var(--bleu-secondaire); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+/* Numbered stop markers. The number carries the direction of the tour, so no
+   arrowheads are needed on the route line. */
+.tour-pin-wrap { background: none; border: none; }
+.tour-pin {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--bleu-principal); color: var(--blanc);
+  font-size: 13px; font-weight: 700;
+  border: 2px solid var(--blanc); box-shadow: var(--shadow-base);
+}
+.tour-pin.is-start { background: var(--succes); }
+
+.leg-label-wrap { background: none; border: none; }
+.leg-label {
+  display: inline-block; white-space: nowrap;
+  background: var(--blanc); color: var(--bleu-action-dark);
+  font-size: 11.5px; font-weight: 700; padding: 2px 7px;
+  border: 1px solid var(--bordures); border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+}
+
+.route-summary {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  margin-top: 12px; font-size: 13.5px; color: var(--texte-secondaire);
+}
+.route-summary-item strong { color: var(--texte-principal); font-weight: 700; }
+.route-summary-sep { width: 1px; height: 14px; background: var(--bordures); }
 
 /* ---------- Misc ---------- */
 

@@ -126,27 +126,110 @@ const BUYERS = [
 
 const COURTIERS_INSCRIPTEURS = ['Marie-Ève Gagnon', 'Patrick Simard', 'Nathalie Côté', 'Éric Bouchard', 'Sylvie Paquette'];
 
+// Coordinates are approximate real positions for each municipality, so the map
+// and the distance-based optimisation behave believably. A real integration
+// would geocode the address instead of carrying lat/lng in the listing.
 const MLS_POOL = [
-  { mls: '18234567', address: '500 Rue D\'Iberville, Montréal, QC H2H 2S6' },
-  { mls: '18234599', address: '515 Boul. Lacombe, Repentigny, QC J6A 1E5' },
-  { mls: '18234612', address: '214 Rue des Oranges, Montréal, QC H2H 2S6' },
-  { mls: '18234671', address: '500 Rue d\'Avaugour, Boucherville, QC J4B 5E7' },
-  { mls: '18234733', address: '123 Avenue des Étoiles, Montréal, QC H3C 1A2' },
-  { mls: '18234845', address: '456 Boulevard de la Liberté, Québec, QC G1V 2M2' },
-  { mls: '18234902', address: '789 Chemin du Bonheur, Gatineau, QC J8X 3G5' },
-  { mls: '18235011', address: '567 Boulevard des Oranges, Lévis, QC G6V 4T4' },
-  { mls: '18235078', address: '567 Boulevard des Citrons, Boucherville, QC J4B 7K1' },
-  { mls: '18235144', address: '567 Boulevard des Oliviers, Longueuil, QC J4K 2M9' },
-  { mls: '18235201', address: '567 Boulevard des Jardins, Lévis, QC G6V 5R3' },
-  { mls: '18235356', address: '32 Rue Principale, Saint-Lambert, QC J4R 1H4' },
-  { mls: '18235410', address: '88 Rue des Érables, Longueuil, QC J4K 3C7' },
+  { mls: '18234567', address: '500 Rue D\'Iberville, Montréal, QC H2H 2S6', lat: 45.5400, lng: -73.5750 },
+  { mls: '18234599', address: '515 Boul. Lacombe, Repentigny, QC J6A 1E5', lat: 45.7423, lng: -73.4500 },
+  { mls: '18234612', address: '214 Rue des Oranges, Montréal, QC H2H 2S6', lat: 45.5450, lng: -73.6200 },
+  { mls: '18234671', address: '500 Rue d\'Avaugour, Boucherville, QC J4B 5E7', lat: 45.5906, lng: -73.4364 },
+  { mls: '18234733', address: '123 Avenue des Étoiles, Montréal, QC H3C 1A2', lat: 45.4720, lng: -73.5560 },
+  { mls: '18234845', address: '456 Boulevard de la Liberté, Québec, QC G1V 2M2', lat: 46.7700, lng: -71.2800 },
+  { mls: '18234902', address: '789 Chemin du Bonheur, Gatineau, QC J8X 3G5', lat: 45.4300, lng: -75.7200 },
+  { mls: '18235011', address: '567 Boulevard des Oranges, Lévis, QC G6V 4T4', lat: 46.8033, lng: -71.1779 },
+  { mls: '18235078', address: '567 Boulevard des Citrons, Boucherville, QC J4B 7K1', lat: 45.6050, lng: -73.4180 },
+  { mls: '18235144', address: '567 Boulevard des Oliviers, Longueuil, QC J4K 2M9', lat: 45.5312, lng: -73.5182 },
+  { mls: '18235201', address: '567 Boulevard des Jardins, Lévis, QC G6V 5R3', lat: 46.7900, lng: -71.1600 },
+  { mls: '18235356', address: '32 Rue Principale, Saint-Lambert, QC J4R 1H4', lat: 45.4990, lng: -73.5090 },
+  { mls: '18235410', address: '88 Rue des Érables, Longueuil, QC J4K 3C7', lat: 45.5210, lng: -73.4980 },
+  { mls: '18235477', address: '145 Rue Sainte-Catherine, Montréal, QC H2X 1K8', lat: 45.5088, lng: -73.5617 },
+  { mls: '18235512', address: '78 Avenue Victoria, Saint-Lambert, QC J4P 2H5', lat: 45.4960, lng: -73.5060 },
+  { mls: '18235589', address: '210 Boulevard Saint-Martin, Laval, QC H7M 1Y8', lat: 45.5750, lng: -73.7100 },
+  { mls: '18235634', address: '44 Rue du Parc, Brossard, QC J4W 2K3', lat: 45.4510, lng: -73.4650 },
 ];
+
+// Greater Montréal bounds, used to place custom stops that have no MLS listing.
+function coordsFor(stop) {
+  if (stop.lat != null && stop.lng != null) return { lat: stop.lat, lng: stop.lng };
+  const listing = MLS_POOL.find(p => p.mls === stop.mls);
+  if (listing) return { lat: listing.lat, lng: listing.lng };
+  const h = hashStr(stop.address || stop.id || '');
+  return { lat: 45.45 + (h % 300) / 1000, lng: -73.75 + ((h >>> 8) % 350) / 1000 };
+}
+
+function haversineKm(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// ~40 km/h effective urban speed plus a fixed buffer for parking and handoff,
+// rounded to the 5-minute grid the scheduler works on.
+function geoTravelMinutes(a, b) {
+  const km = haversineKm(a, b);
+  return Math.max(5, Math.round((km / 40 * 60 + 5) / 5) * 5);
+}
+
+// Greedy nearest-neighbour from the first stop, which stays the anchor: the
+// agent decides where the day starts, geography decides the rest.
+function optimizeByGeography(props) {
+  if (props.length < 2) return props.slice();
+  const remaining = props.slice();
+  const route = [remaining.shift()];
+  while (remaining.length) {
+    const from = coordsFor(route[route.length - 1]);
+    let bestIdx = 0, bestKm = Infinity;
+    remaining.forEach((s, i) => {
+      const km = haversineKm(from, coordsFor(s));
+      if (km < bestKm) { bestKm = km; bestIdx = i; }
+    });
+    route.push(remaining.splice(bestIdx, 1)[0]);
+  }
+  return route;
+}
+
+// Total driving distance and time along the tour, in order.
+function routeTotals(stops) {
+  const props = stops.filter(s => s.type === 'property');
+  let km = 0, min = 0;
+  for (let i = 1; i < props.length; i++) {
+    const a = coordsFor(props[i - 1]), b = coordsFor(props[i]);
+    km += haversineKm(a, b);
+    min += geoTravelMinutes(a, b);
+  }
+  return { km, min, count: props.length };
+}
 function courtierFor(mls) { return COURTIERS_INSCRIPTEURS[hashStr(mls) % COURTIERS_INSCRIPTEURS.length]; }
 function courtierPhoneFor(courtier) {
   const h = hashStr(courtier);
   return `(${514 + (h % 3) * 100}) ${100 + (h % 900)}-${1000 + ((h >>> 3) % 9000)}`;
 }
 function travelFor(a, b) { return 8 + (hashStr(a + '|' + b) % 13); }
+
+// A pause doesn't move you, so in geo mode a leg is measured from the last
+// property actually visited rather than from the pause sitting in between.
+function travelBetween(prev, cur, lastProperty) {
+  if (flag('geoOptimize')) {
+    if (cur.type === 'pause') return null;
+    const from = lastProperty || (prev.type === 'property' ? prev : null);
+    if (!from) return null;
+    return geoTravelMinutes(coordsFor(from), coordsFor(cur));
+  }
+  const prevKey = prev.type === 'pause' ? 'pause-' + prev.id : prev.address;
+  const curKey = cur.type === 'pause' ? 'pause-' + cur.id : cur.address;
+  return travelFor(prevKey, curKey);
+}
+
+function formatKm(km) { return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`; }
+function formatMinutes(min) {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h} h ${String(m).padStart(2, '0')}` : `${h} h`;
+}
 
 // Properties already selected in MLS Matrix and sent to the "Cart" of this app
 let mlsCart = [
@@ -157,11 +240,14 @@ let mlsCart = [
 ];
 
 function makeStop(address, mls, opts = {}) {
+  const listing = MLS_POOL.find(p => p.mls === mls);
   return {
     id: uid(),
     type: 'property',
     address,
     mls,
+    lat: opts.lat ?? listing?.lat ?? null,
+    lng: opts.lng ?? listing?.lng ?? null,
     courtier: courtierFor(mls),
     status: opts.status || 'pending',
     duration: opts.duration || 30,
@@ -190,14 +276,14 @@ function seedTours() {
       stops: [
         makeStop('500 Rue d\'Avaugour, Boucherville, QC J4B 5E7', '18234671', { status: 'confirmed', lockedStart: '14:30' }),
         makeStop('123 Avenue des Étoiles, Montréal, QC H3C 1A2', '18234733', { status: 'pending' }),
-        makeStop('456 Boulevard de la Liberté, Québec, QC G1V 2M2', '18234845', { status: 'confirmed', lockedStart: '16:00' }),
+        makeStop('44 Rue du Parc, Brossard, QC J4W 2K3', '18235634', { status: 'confirmed', lockedStart: '16:00' }),
       ],
     },
     {
       id: 't3', buyerId: 'b1', date: '2026-07-12', time: '15:00', sentAt: Date.now() - 80000,
       stops: [
-        makeStop('789 Chemin du Bonheur, Gatineau, QC J8X 3G5', '18234902', { status: 'confirmed', lockedStart: '15:00' }),
-        makeStop('567 Boulevard des Oranges, Lévis, QC G6V 4T4', '18235011', { status: 'pending' }),
+        makeStop('210 Boulevard Saint-Martin, Laval, QC H7M 1Y8', '18235589', { status: 'confirmed', lockedStart: '15:00' }),
+        makeStop('145 Rue Sainte-Catherine, Montréal, QC H2X 1K8', '18235477', { status: 'pending' }),
         makeStop('567 Boulevard des Citrons, Boucherville, QC J4B 7K1', '18235078', { status: 'pending' }),
         makeStop('567 Boulevard des Oliviers, Longueuil, QC J4K 2M9', '18235144', { status: 'confirmed', lockedStart: '17:00' }),
       ],
@@ -205,7 +291,7 @@ function seedTours() {
     {
       id: 't4', buyerId: 'b3', date: '2026-07-12', time: '16:00', sentAt: Date.now() - 70000,
       stops: [
-        makeStop('567 Boulevard des Jardins, Lévis, QC G6V 5R3', '18235201', { status: 'confirmed', lockedStart: '16:00' }),
+        makeStop('78 Avenue Victoria, Saint-Lambert, QC J4P 2H5', '18235512', { status: 'confirmed', lockedStart: '16:00' }),
         makeStop('32 Rue Principale, Saint-Lambert, QC J4R 1H4', '18235356', { status: 'pending' }),
       ],
     },
@@ -246,7 +332,7 @@ const FEATURE_FLAGS = [
   { group: 'Parcours', id: 'partialShare', label: 'Partage en confirmation partielle', help: 'Autorise le partage au client même si toutes les visites ne sont pas encore confirmées.', default: true, wired: false },
   { group: 'Parcours', id: 'multishowing', label: 'Envoi groupé (Multishowing)', help: 'En attente de validation client — aligne le Buyer\'s Tour sur le comportement Multishowing.', default: false, wired: false },
 
-  { group: 'Optimisation et timing', id: 'geoOptimize', label: 'Optimisation géographique', help: 'Ordonne les arrêts du plus proche au plus loin avec les temps de trajet, au lieu du tri alphabétique actuel.', default: false, wired: false },
+  { group: 'Optimisation et timing', id: 'geoOptimize', label: 'Optimisation géographique', help: 'Ordonne les arrêts du plus proche au plus loin et calcule les temps de trajet sur les distances réelles, au lieu du tri alphabétique.', default: true, wired: true },
   { group: 'Optimisation et timing', id: 'timingHint', label: 'Rappel des paliers de 15 min', help: 'Notification bleue indiquant que le timing est personnalisable par paliers de 15 minutes.', default: false, wired: false },
   { group: 'Optimisation et timing', id: 'insertFromBanner', label: 'Insérer depuis une notification', help: 'Le crayon d\'un bandeau de trajet permet d\'insérer une pause ou un arrêt personnalisé.', default: false, wired: false },
 
@@ -313,13 +399,20 @@ function markDirtyIfSent() {
 
 function optimizeDraftStops() {
   const pauses = state.draft.stops.filter(s => s.type === 'pause');
-  const props = state.draft.stops.filter(s => s.type === 'property')
-    .slice()
-    .sort((a, b) => a.address.localeCompare(b.address));
-  state.draft.stops = [...props, ...pauses];
+  const props = state.draft.stops.filter(s => s.type === 'property');
+  let ordered, message;
+  if (flag('geoOptimize')) {
+    ordered = optimizeByGeography(props);
+    const { km, min } = routeTotals(ordered);
+    message = `Tour optimisé par distance : ${formatKm(km)} et ${formatMinutes(min)} de trajet.`;
+  } else {
+    ordered = props.slice().sort((a, b) => a.address.localeCompare(b.address));
+    message = 'Tour réordonné par ordre alphabétique d\'adresse.';
+  }
+  state.draft.stops = [...ordered, ...pauses];
   markDirtyIfSent();
   render();
-  showToast('Tour optimisé selon la distance estimée.', 'success');
+  showToast(message, 'success');
 }
 
 function saveDraftToTour(notify, notifyBuyer = false) {
@@ -351,15 +444,14 @@ function newDraft(buyer) {
 function computeSchedule(draft) {
   let cursor = timeToMinutes(draft.time);
   const rows = [];
+  let lastProperty = null;
   for (let i = 0; i < draft.stops.length; i++) {
     const stop = draft.stops[i];
     const prev = draft.stops[i - 1];
     let travelBefore = null;
     if (prev) {
-      const prevAddr = prev.type === 'pause' ? 'pause-' + prev.id : prev.address;
-      const curAddr = stop.type === 'pause' ? 'pause-' + stop.id : stop.address;
-      travelBefore = travelFor(prevAddr, curAddr);
-      cursor += travelBefore;
+      travelBefore = travelBetween(prev, stop, lastProperty);
+      if (travelBefore) cursor += travelBefore;
     }
     let conflict = null;
     let start;
@@ -386,6 +478,7 @@ function computeSchedule(draft) {
       }
     }
     rows.push({ stop, start, travelBefore, conflict });
+    if (stop.type !== 'pause') lastProperty = stop;
   }
   return rows;
 }
@@ -1167,33 +1260,7 @@ function resultRow(p, addedMls) {
 function renderMapScreen() {
   const draft = state.draft;
   const rows = computeSchedule(draft);
-  const stopsWithPos = draft.stops.filter(s => s.type === 'property').map((s, i) => {
-    const h = hashStr(s.address);
-    return { ...s, x: 12 + (h % 74), y: 12 + ((h >> 4) % 62), idx: i + 1 };
-  });
-
-  // Primary route: smooth curve through the stops in tour order.
-  // Alternative route: same stops, curving the opposite way (dashed).
-  const mkPath = (pts, sign) => {
-    if (pts.length < 2) return '';
-    let d = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i];
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len = Math.max(Math.hypot(dx, dy), 0.01);
-      const off = Math.min(12, len * 0.35) * sign;
-      d += ` Q ${mx - (dy / len) * off} ${my + (dx / len) * off}, ${b.x} ${b.y}`;
-    }
-    return d;
-  };
-
-  const routesHtml = stopsWithPos.length >= 2 ? `
-    <svg class="map-routes" viewBox="0 0 100 100" preserveAspectRatio="none">
-      <path d="${mkPath(stopsWithPos, -1)}" class="map-route-alt"/>
-      <path d="${mkPath(stopsWithPos, 1)}" class="map-route-main"/>
-      ${stopsWithPos.map(s => `<circle cx="${s.x}" cy="${s.y}" r="1.2" class="map-route-dot"/>`).join('')}
-    </svg>` : '';
+  const totals = routeTotals(draft.stops);
 
   const stopsHtml = draft.stops.length === 0 ? '' : rows.map(({ stop, start }) => {
     const label = stop.type === 'pause'
@@ -1215,20 +1282,26 @@ function renderMapScreen() {
       </div>`;
   }).join('');
 
-  return `
-    <div class="map-placeholder">
-      <img class="map-bg" src="assets/map.svg" alt="">
-      ${routesHtml}
-      ${stopsWithPos.map(s => `<div class="map-pin" style="left:${s.x}%;top:${s.y}%;" title="${esc(s.address)}"><span>${s.idx}</span></div>`).join('')}
-    </div>
-    ${stopsWithPos.length >= 2 ? `
-    <div class="map-legend">
-      <span class="map-legend-item"><span class="map-legend-line main"></span> Trajet proposé</span>
-      <span class="map-legend-item"><span class="map-legend-line alt"></span> Trajet alternatif</span>
-    </div>` : ''}
-    <p class="helper-text" style="margin-top:10px;">Aperçu simplifié — l'intégration carte réelle sera branchée dans une prochaine itération.</p>
+  const canOptimize = totals.count >= 2;
 
-    <button class="btn btn-outline btn-block" id="btn-optimize-map" style="margin-top:16px;" ${draft.stops.filter(s => s.type === 'property').length < 2 ? 'disabled' : ''}>Optimiser le tour</button>
+  return `
+    <div id="leaflet-map" class="tour-map"></div>
+    ${canOptimize && flag('geoOptimize') ? `
+      <div class="route-summary">
+        <span class="route-summary-item"><strong>${totals.count}</strong> arrêts</span>
+        <span class="route-summary-sep"></span>
+        <span class="route-summary-item"><strong>${formatKm(totals.km)}</strong> de trajet</span>
+        <span class="route-summary-sep"></span>
+        <span class="route-summary-item"><strong>${formatMinutes(totals.min)}</strong> sur la route</span>
+      </div>
+    ` : ''}
+
+    <button class="btn btn-outline btn-block" id="btn-optimize-map" style="margin-top:16px;" ${canOptimize ? '' : 'disabled'}>
+      ${flag('geoOptimize') ? 'Optimiser par distance' : 'Optimiser le tour'}
+    </button>
+    ${canOptimize && !flag('geoOptimize') ? `
+      <p class="helper-text" style="margin-top:8px;">L'optimisation trie par ordre alphabétique d'adresse. Activez « Optimisation géographique » dans les flags pour ordonner du plus proche au plus loin.</p>
+    ` : ''}
 
     <p class="section-label" style="margin-top:20px;">Réordonner les arrêts :</p>
     <div>${stopsHtml}</div>`;
@@ -1395,6 +1468,10 @@ function showToast(msg, type = 'default') {
 /* ---------------- Events ---------------- */
 
 function bindEvents() {
+  // Leaving the map screen: dispose Leaflet so it doesn't leak a live instance
+  // bound to a DOM node that render() has already thrown away.
+  if (state.screen !== 'map') destroyTourMap();
+
   // Sidebar nav + mobile menu grid (only "tours" is wired; others show a toast)
   document.querySelectorAll('[data-nav]').forEach(el => {
     el.onclick = (e) => {
@@ -1682,9 +1759,85 @@ function bindBuilderEvents() {
   bindDragAndDrop();
 }
 
+/* ----- Leaflet tour map -----
+   Leaflet keeps its state in a DOM node, but render() replaces #main-content
+   wholesale, which orphans that node. So the instance is disposed and rebuilt
+   on every render of this screen. The view is carried across rebuilds as long
+   as the same set of stops is displayed, so panning and zooming survive a
+   reorder; changing the set of stops refits the bounds instead. */
+const tourMap = { instance: null, center: null, zoom: null, sig: null };
+
+function destroyTourMap() {
+  if (!tourMap.instance) return;
+  tourMap.center = tourMap.instance.getCenter();
+  tourMap.zoom = tourMap.instance.getZoom();
+  tourMap.instance.remove();
+  tourMap.instance = null;
+}
+
+function buildTourMap() {
+  const el = document.getElementById('leaflet-map');
+  if (!el || typeof L === 'undefined') return;
+
+  const props = state.draft.stops.filter(s => s.type === 'property');
+  const sig = props.map(s => s.id).slice().sort().join(',');
+  const sameSet = tourMap.sig === sig && tourMap.center && tourMap.zoom != null;
+
+  const map = L.map(el, { scrollWheelZoom: false });
+  tourMap.instance = map;
+  tourMap.sig = sig;
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap',
+  }).addTo(map);
+
+  const latlngs = props.map(s => { const c = coordsFor(s); return [c.lat, c.lng]; });
+
+  if (latlngs.length >= 2) {
+    L.polyline(latlngs, { color: '#0066DC', weight: 4, opacity: 0.9 }).addTo(map);
+    // Travel time sits on the leg it belongs to, so the cost of the ordering is
+    // readable straight off the map rather than only in the list below. Only
+    // shown in geo mode: otherwise the schedule uses mock times and the map
+    // would contradict the travel chips in the list.
+    if (flag('geoOptimize')) for (let i = 1; i < props.length; i++) {
+      const a = coordsFor(props[i - 1]), b = coordsFor(props[i]);
+      L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], {
+        interactive: false,
+        icon: L.divIcon({
+          className: 'leg-label-wrap',
+          html: `<span class="leg-label">${geoTravelMinutes(a, b)} min</span>`,
+          iconSize: [54, 20], iconAnchor: [27, 10],
+        }),
+      }).addTo(map);
+    }
+  }
+
+  props.forEach((s, i) => {
+    const c = coordsFor(s);
+    L.marker([c.lat, c.lng], {
+      title: s.address,
+      icon: L.divIcon({
+        className: 'tour-pin-wrap',
+        html: `<span class="tour-pin ${i === 0 ? 'is-start' : ''}">${i + 1}</span>`,
+        iconSize: [28, 28], iconAnchor: [14, 14],
+      }),
+    }).addTo(map).bindPopup(`<strong>${esc(s.address)}</strong>`);
+  });
+
+  if (sameSet) map.setView(tourMap.center, tourMap.zoom);
+  else if (latlngs.length) map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40], maxZoom: 14 });
+  else map.setView([45.5019, -73.5674], 11);
+
+  map.invalidateSize();
+}
+
 function bindMapEvents() {
   const optimizeBtn = document.getElementById('btn-optimize-map');
   if (optimizeBtn) optimizeBtn.onclick = optimizeDraftStops;
+
+  destroyTourMap();
+  buildTourMap();
 
   bindDragAndDrop();
 }
