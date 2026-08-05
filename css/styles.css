@@ -166,6 +166,44 @@ a { color: inherit; text-decoration: none; }
 .topbar-back svg { width: 22px; height: 22px; display: block; }
 body[data-screen="map"] .topbar-back, body[data-screen="report"] .topbar-back { display: inline-flex; }
 
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+
+.flag-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--blanc); border: 1px solid var(--bordures); border-radius: var(--radius-md);
+  padding: 6px 10px; font-size: 13px; font-weight: 600; font-family: inherit;
+  color: var(--texte-secondaire); cursor: pointer;
+}
+.flag-btn:hover { background: var(--lumiere-principale); color: var(--bleu-secondaire); border-color: var(--bleu-secondaire); }
+.flag-btn svg { width: 14px; height: 14px; }
+
+.flag-row { display: flex; align-items: flex-start; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--bordures); }
+.flag-row:last-child { border-bottom: none; }
+.flag-row-text { flex: 1; min-width: 0; }
+.flag-row-label { margin: 0; font-size: 14.5px; font-weight: 600; color: var(--texte-principal); }
+.flag-row-help { margin: 3px 0 0; font-size: 13px; line-height: 1.45; color: var(--texte-secondaire); }
+.flag-soon {
+  flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--texte-secondaire);
+  background: var(--neutre-surface); border-radius: 999px; padding: 4px 10px; margin-top: 2px;
+}
+
+.switch {
+  flex-shrink: 0; width: 44px; height: 26px; border-radius: 999px; margin-top: 1px;
+  background: var(--bordures); border: none; padding: 3px; cursor: pointer;
+  display: flex; align-items: center; transition: background 150ms ease-out;
+}
+.switch-thumb {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--blanc);
+  box-shadow: var(--shadow-sm); transition: transform 150ms ease-out;
+}
+.switch.on { background: var(--succes); }
+.switch.on .switch-thumb { transform: translateX(18px); }
+.switch:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .switch, .switch-thumb { transition: none; }
+}
+
 .user-info { display: flex; align-items: center; gap: 8px; }
 .user-avatar {
   width: 30px; height: 30px; border-radius: 8px;

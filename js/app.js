@@ -229,9 +229,50 @@ function seedTours() {
   ];
 }
 
+/* ---------------- Feature flags ---------------- */
+
+// Buyer's Tour is built as a standalone API, decoupled from the platform, so a
+// single build has to demo both the ImmoContact and the TB behaviour. Every
+// divergent behaviour — and everything still pending client validation — sits
+// behind a flag. `wired: false` means the feature is specced but not built yet;
+// the panel lists it as "à venir" rather than offering a toggle that does nothing.
+const FEATURE_FLAGS = [
+  { group: 'Sources de propriétés', id: 'mlsCart', label: 'Panier et recherche MLS', help: 'Onglets Panier et MLS dans « Ajouter une destination ». Désactivé, on obtient le comportement ImmoContact sans MLS.', default: true, wired: true },
+  { group: 'Sources de propriétés', id: 'customAddress', label: 'Adresse personnalisée', help: 'Ajouter un arrêt à une adresse libre, hors MLS.', default: true, wired: false },
+  { group: 'Sources de propriétés', id: 'propertyViaBrokerOnly', label: 'Propriété via courtier uniquement (TB)', help: 'Sur TB, une propriété ne peut être ajoutée qu\'après avoir sélectionné un courtier.', default: false, wired: false },
+
+  { group: 'Parcours', id: 'stagedFlow', label: 'Parcours en 4 étapes', help: 'Brouillon → validation des courtiers → confirmé → partagé, avec un statut de tour explicite.', default: false, wired: false },
+  { group: 'Parcours', id: 'buyerAtEnd', label: 'Sélection du client à la fin', help: 'Le tour se construit sans acheteur ; le client est choisi une fois les visites confirmées.', default: false, wired: false },
+  { group: 'Parcours', id: 'partialShare', label: 'Partage en confirmation partielle', help: 'Autorise le partage au client même si toutes les visites ne sont pas encore confirmées.', default: true, wired: false },
+  { group: 'Parcours', id: 'multishowing', label: 'Envoi groupé (Multishowing)', help: 'En attente de validation client — aligne le Buyer\'s Tour sur le comportement Multishowing.', default: false, wired: false },
+
+  { group: 'Optimisation et timing', id: 'geoOptimize', label: 'Optimisation géographique', help: 'Ordonne les arrêts du plus proche au plus loin avec les temps de trajet, au lieu du tri alphabétique actuel.', default: false, wired: false },
+  { group: 'Optimisation et timing', id: 'timingHint', label: 'Rappel des paliers de 15 min', help: 'Notification bleue indiquant que le timing est personnalisable par paliers de 15 minutes.', default: false, wired: false },
+  { group: 'Optimisation et timing', id: 'insertFromBanner', label: 'Insérer depuis une notification', help: 'Le crayon d\'un bandeau de trajet permet d\'insérer une pause ou un arrêt personnalisé.', default: false, wired: false },
+
+  { group: 'Intégrations', id: 'calendarSync', label: 'Synchroniser avec mon calendrier', help: 'Bouton d\'export vers Google Agenda. Retiré à la demande des clients.', default: false, wired: true },
+];
+
+const FLAG_STORAGE_KEY = 'ic-buyers-tour-flags';
+
+function loadFlags() {
+  const flags = {};
+  FEATURE_FLAGS.forEach(f => { flags[f.id] = f.default; });
+  try {
+    const saved = JSON.parse(localStorage.getItem(FLAG_STORAGE_KEY) || '{}');
+    Object.keys(saved).forEach(k => { if (k in flags) flags[k] = !!saved[k]; });
+  } catch (e) { /* storage unavailable (private mode) — defaults are fine */ }
+  return flags;
+}
+function saveFlags() {
+  try { localStorage.setItem(FLAG_STORAGE_KEY, JSON.stringify(state.flags)); } catch (e) { /* ignore */ }
+}
+function flag(id) { return !!state.flags[id]; }
+
 /* ---------------- State ---------------- */
 
 const state = {
+  flags: loadFlags(),
   screen: 'list',           // list | contact | buyerForm | builder
   listTab: 'upcoming',      // upcoming | past
   listSearch: '',
@@ -711,7 +752,7 @@ function renderFooterActions(propertyCount) {
   const tour = currentTour();
   const isSent = !!(tour && tour.sentAt);
 
-  const gcalBtn = `
+  const gcalBtn = !flag('calendarSync') ? '' : `
     <button class="btn btn-outline" id="btn-gcal" ${propertyCount === 0 ? 'disabled' : ''}>
       ${icon('sync')} Synchroniser avec mon calendrier
     </button>`;
@@ -773,6 +814,7 @@ function renderModal() {
   const root = document.getElementById('modal-root');
   if (!state.modal) { root.innerHTML = ''; return; }
 
+  if (state.modal.type === 'flags') { root.innerHTML = renderFlagsModal(); return; }
   if (state.modal.type === 'destination') { root.innerHTML = renderDestinationModal(); return; }
   if (state.modal.type === 'visitRequest') { root.innerHTML = renderVisitRequestModal(); return; }
   if (state.modal.type === 'confirmSend') { root.innerHTML = renderConfirmSendModal(); return; }
@@ -959,6 +1001,44 @@ function renderConfirmModal(title, body, confirmId) {
     </div>`;
 }
 
+function renderFlagsModal() {
+  const groups = [];
+  FEATURE_FLAGS.forEach(f => {
+    let g = groups.find(x => x.name === f.group);
+    if (!g) { g = { name: f.group, items: [] }; groups.push(g); }
+    g.items.push(f);
+  });
+
+  return `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-head"><h2>Feature flags</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
+        <div class="modal-body">
+          <p class="helper-text" style="margin-top:0;">Le Buyer's Tour est développé comme une API autonome. Ces interrupteurs simulent les comportements propres à chaque plateforme sans changer de build.</p>
+          ${groups.map(g => `
+            <p class="section-label" style="margin-top:18px;">${esc(g.name)}</p>
+            ${g.items.map(f => `
+              <div class="flag-row">
+                <div class="flag-row-text">
+                  <p class="flag-row-label">${esc(f.label)}</p>
+                  <p class="flag-row-help">${esc(f.help)}</p>
+                </div>
+                ${f.wired ? `
+                  <button class="switch ${flag(f.id) ? 'on' : ''}" data-flag="${f.id}" role="switch" aria-checked="${flag(f.id) ? 'true' : 'false'}" aria-label="${esc(f.label)}">
+                    <span class="switch-thumb"></span>
+                  </button>
+                ` : `<span class="flag-soon">À venir</span>`}
+              </div>
+            `).join('')}
+          `).join('')}
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline btn-block" id="modal-cancel">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 const DEST_TABS = [
   { id: 'nom', label: 'Nom', icon: 'search' },
   { id: 'adresse', label: 'Adresse', icon: 'mapPinOutline' },
@@ -968,10 +1048,21 @@ const DEST_TABS = [
   { id: 'pause', label: 'Pause', icon: 'pause' },
 ];
 
+// MLS search and Panier come from the platform's MLS integration; ImmoContact
+// can run the tour builder without them.
+function destTabs() {
+  return DEST_TABS.filter(t => flag('mlsCart') || (t.id !== 'mls' && t.id !== 'cart'));
+}
+function defaultDestTab() {
+  return flag('mlsCart') ? 'cart' : 'nom';
+}
+
 function renderDestinationModal() {
   const draft = state.draft;
   const addedMls = new Set(draft.stops.filter(s => s.mls).map(s => s.mls));
-  const tab = state.destModalTab;
+  const tabs = destTabs();
+  // The active tab can become hidden if the mlsCart flag is switched off while open.
+  const tab = tabs.some(t => t.id === state.destModalTab) ? state.destModalTab : tabs[0].id;
   const q = state.destModalSearch.trim().toLowerCase();
 
   let body = '';
@@ -1043,7 +1134,7 @@ function renderDestinationModal() {
         <div class="modal-head"><h2>Recherche par :</h2><button class="modal-close" id="modal-close">${icon('x')}</button></div>
         <div class="modal-body">
           <div class="dest-tabs">
-            ${DEST_TABS.map(t => `
+            ${tabs.map(t => `
               <div class="dest-tab ${tab === t.id ? 'active' : ''}" data-dest-tab="${t.id}">
                 ${icon(t.icon)} ${esc(t.label)}
                 ${t.id === 'cart' && mlsCart.length ? `<span class="tab-badge">${mlsCart.length}</span>` : ''}
@@ -1330,6 +1421,9 @@ function bindEvents() {
   const topbarBackBtn = document.getElementById('topbar-back-btn');
   if (topbarBackBtn) topbarBackBtn.onclick = goBack;
 
+  const flagsBtn = document.getElementById('btn-flags');
+  if (flagsBtn) flagsBtn.onclick = () => { state.modal = { type: 'flags' }; render(); };
+
   if (state.screen === 'list') bindListEvents();
   if (state.screen === 'contact') bindContactEvents();
   if (state.screen === 'builder') bindBuilderEvents();
@@ -1476,7 +1570,7 @@ function bindBuilderEvents() {
     // Remember how many stops the tour had when the modal opened: the footer
     // button reads "Fermer" until something is added, then becomes "Ajouter".
     state.modal = { type: 'destination', initialStops: state.draft.stops.length };
-    state.destModalTab = 'cart';
+    state.destModalTab = defaultDestTab();
     state.destModalSearch = '';
     render();
   };
@@ -1685,6 +1779,16 @@ function bindModalEvents() {
 
   document.addEventListener('keydown', escHandler);
 
+  if (state.modal.type === 'flags') {
+    document.querySelectorAll('[data-flag]').forEach(el => {
+      el.onclick = () => {
+        const id = el.getAttribute('data-flag');
+        state.flags[id] = !state.flags[id];
+        saveFlags();
+        render();
+      };
+    });
+  }
   if (state.modal.type === 'destination') bindDestinationModalEvents();
   if (state.modal.type === 'visitRequest') bindVisitRequestModalEvents();
   if (state.modal.type === 'confirmSend') {

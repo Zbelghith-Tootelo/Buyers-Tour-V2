@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- Bump ?v= on both tags below whenever css/js changes, so browsers don't serve a stale cached copy after deploy. -->
-<link rel="stylesheet" href="css/styles.css?v=11">
+<link rel="stylesheet" href="css/styles.css?v=12">
 </head>
 <body>
 
@@ -64,9 +64,15 @@
         </button>
         <h1 class="topbar-title" id="topbar-title">Tour de visites</h1>
       </div>
-      <div class="user-info">
-        <img class="user-avatar" src="assets/avatar.png" alt="" width="30" height="30">
-        <span class="user-name">Nadia Ciancotti</span>
+      <div class="topbar-right">
+        <button class="flag-btn" id="btn-flags" title="Feature flags">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 3v18M6 4h11l-2.5 4L17 12H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Flags</span>
+        </button>
+        <div class="user-info">
+          <img class="user-avatar" src="assets/avatar.png" alt="" width="30" height="30">
+          <span class="user-name">Nadia Ciancotti</span>
+        </div>
       </div>
     </header>
 
@@ -85,6 +91,6 @@
 <div id="modal-root"></div>
 <div id="toast-root"></div>
 
-<script src="js/app.js?v=11"></script>
+<script src="js/app.js?v=12"></script>
 </body>
 </html>
