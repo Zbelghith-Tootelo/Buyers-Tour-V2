@@ -1,6 +1,7 @@
 :root {
   --bleu-principal: #213163;
   --bleu-principal-dark: #161F3E;
+  --bleu-nav-10: #EEF0F5;
   --bleu-secondaire: #0066DC;
   --bleu-action-10: #EAF3FB;
   --bleu-action-dark: #004FA9;
@@ -426,6 +427,10 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 .status-chip.draft { background: var(--neutre-surface); color: var(--texte-secondaire); }
 .status-chip.pending { background: var(--attention-bg); color: #8a5a05; }
 .status-chip.ok { background: var(--succes-bg); color: #17792a; }
+/* « Non envoyé » : la balle est dans le camp du courtier, pas dans celui d'un
+   tiers. Le marine le distingue de l'ambre (on attend quelqu'un d'autre) comme
+   du bleu action (c'est parti). */
+.status-chip.todo { background: var(--bleu-nav-10); color: var(--bleu-principal); }
 .status-chip.shared { background: var(--bleu-action-10); color: var(--bleu-action-dark); }
 
 /* Récapitulatif de la validation, en tête du tour. Les compteurs se lisent
@@ -435,6 +440,9 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
   border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; background: var(--lumiere-principale);
 }
 .validation-panel.confirme { border-left-color: var(--succes); background: var(--succes-bg); }
+/* Les visites sont bien confirmées, mais il reste un geste à faire : liseré
+   marine plutôt que vert, pour ne pas signaler « terminé ». */
+.validation-panel.non_envoye { border-left-color: var(--bleu-principal); background: var(--bleu-nav-10); }
 .validation-counts { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .vcount { font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
 .vcount::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
@@ -530,6 +538,9 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 /* Explication d'un bouton primaire fermé : un bouton grisé sans raison est un
    cul-de-sac. */
 .footer-note { margin: -4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--texte-secondaire); }
+/* Sur l'écran acheteur la note suit un groupe de boutons empilés : sans marge
+   elle se lit comme la légende du dernier bouton, qu'elle ne décrit pas. */
+.contact-pane .footer-note { margin-top: 14px; }
 
 .draft-chip {
   display: inline-block;

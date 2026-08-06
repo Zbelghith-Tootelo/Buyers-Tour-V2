@@ -511,6 +511,7 @@ const TOUR_STATUSES = {
   brouillon:     { label: 'Brouillon', tone: 'draft', help: 'Aucune demande envoyée. Le tour n\'est visible que par vous.' },
   en_validation: { label: 'En validation', tone: 'pending', help: 'Les demandes sont parties. En attente de la réponse des courtiers inscripteurs.' },
   confirme:      { label: 'Confirmé', tone: 'ok', help: 'Toutes les visites sont confirmées. Le tour peut être partagé avec un acheteur.' },
+  non_envoye:    { label: 'Non envoyé', tone: 'todo', help: 'L\'acheteur est choisi et les visites sont confirmées, mais le tour ne lui a pas encore été envoyé.' },
   partage:       { label: 'Partagé', tone: 'shared', help: 'Le tour a été partagé avec l\'acheteur.' },
 };
 
@@ -533,7 +534,11 @@ function tourStatus(t) {
   if (!t.sentAt) return 'brouillon';
   if (t.sharedAt) return 'partage';
   const props = t.stops.filter(s => s.type === 'property');
-  return props.some(s => stopNeedsAction(s, t)) ? 'en_validation' : 'confirme';
+  if (props.some(s => stopNeedsAction(s, t))) return 'en_validation';
+  // Tout est confirmé : reste à savoir si l'acheteur est au courant. Choisir
+  // l'acheteur et lui envoyer le tour sont deux gestes distincts, donc deux
+  // états distincts — sinon « Confirmé » masque le fait qu'il n'a rien reçu.
+  return t.buyerId ? 'non_envoye' : 'confirme';
 }
 
 // Compte des réponses, pour le récapitulatif de l'étape « attendre la
@@ -915,6 +920,21 @@ function relanceTour() {
   render();
 }
 
+// Rattacher l'acheteur au tour sans rien lui transmettre : le tour passe
+// « Non envoyé ». Sépare le choix du destinataire de l'envoi, pour qu'un
+// acheteur puisse être noté avant que le tour soit prêt à partir.
+function attachBuyerToTour(buyer) {
+  const t = currentTour();
+  state.draft.buyer = buyer;
+  if (t) {
+    t.buyerId = buyer.id;
+    t.stops = state.draft.stops;
+    t.date = state.draft.date;
+    t.time = state.draft.time;
+  }
+  state.dirty = false;
+}
+
 // Étape 4 : rattacher l'acheteur et lui transmettre le tour.
 function shareTourWithBuyer(buyer) {
   const t = currentTour();
@@ -1109,7 +1129,9 @@ function render() {
   // point par lequel passe toute modification du tour.
   normalizeParallel(state.draft);
   if (state.screen === 'list') { setTopbarTitle('Tour de visites'); main.innerHTML = renderListScreen(); }
-  else if (state.screen === 'contact') { setTopbarTitle(state.contactPurpose === 'share' ? 'Partager le tour de visites' : 'Créer un tour de visites'); main.innerHTML = renderContactScreen(); }
+  // L'écran nomme son objet — l'acheteur — et non l'envoi : on peut en repartir
+  // sans avoir rien envoyé.
+  else if (state.screen === 'contact') { setTopbarTitle(state.contactPurpose === 'share' ? 'Choisir l\'acheteur' : 'Créer un tour de visites'); main.innerHTML = renderContactScreen(); }
   else if (state.screen === 'builder') { setTopbarTitle('Créer un tour de visites'); main.innerHTML = renderBuilderScreen(); }
   else if (state.screen === 'map') { setTopbarTitle('Carte du tour'); main.innerHTML = renderMapScreen(); }
   else if (state.screen === 'report') { setTopbarTitle('Compte rendu de visite'); main.innerHTML = renderReportScreen(); }
@@ -1173,11 +1195,13 @@ function renderListScreen() {
           ? `${tally.toHandle} réponse${tally.toHandle > 1 ? 's' : ''} à traiter`
           : status === 'en_validation'
             ? `${tally.confirmed}/${tally.total} confirmée${tally.confirmed > 1 ? 's' : ''}`
-            : '';
+            : status === 'non_envoye'
+              ? 'À envoyer à l\'acheteur'
+              : '';
         return `
           <div class="tour-card" data-open-tour="${t.id}">
             <div class="tour-card-icon">
-              ${tourIconSvg(status === 'confirme' || status === 'partage' ? 'confirmed' : 'pending')}
+              ${tourIconSvg(status === 'en_validation' || status === 'brouillon' ? 'pending' : 'confirmed')}
             </div>
             <div class="tour-card-body">
               <p class="tour-card-name">${esc(b ? `${b.prenom} ${b.nom}` : 'Sans acheteur')} <span class="status-chip ${meta.tone}">${esc(meta.label)}</span></p>
@@ -1271,9 +1295,11 @@ function renderContactScreen() {
       ${searchBlock}
       ${formBlock}
       <div class="form-actions" style="margin-top:${state.showBuyerForm || selected ? '4px' : '0'};">
-        <button class="btn btn-primary" id="btn-save-contact" ${canSave ? '' : 'disabled'}>${sharing ? 'Partager le tour' : 'Sauvegarder'}</button>
+        <button class="btn btn-primary" id="btn-save-contact" ${canSave ? '' : 'disabled'}>${sharing ? 'Envoyer à l\'acheteur' : 'Sauvegarder'}</button>
+        ${sharing ? `<button class="btn btn-outline" id="btn-attach-contact" ${canSave ? '' : 'disabled'}>Enregistrer</button>` : ''}
         <button class="btn btn-outline" id="btn-cancel-contact">Annuler</button>
       </div>
+      ${sharing ? `<p class="footer-note">« Enregistrer » rattache l'acheteur au tour sans le lui envoyer : le tour reste <strong>Non envoyé</strong>.</p>` : ''}
     </div>
   `;
 }
@@ -1354,6 +1380,7 @@ function renderBuilderScreen() {
   // continuerait de bloquer le partage.
   const liveTour = {
     stops: draft.stops,
+    buyerId: buyer ? buyer.id : null,
     sentAt: saved && saved.sentAt,
     sharedAt: saved && saved.sharedAt,
     relancedAt: saved && saved.relancedAt,
@@ -1504,18 +1531,21 @@ function renderBuilderScreen() {
       </div>
     </div>`;
 
-  const validationPanel = status !== 'en_validation' && status !== 'confirme' ? '' : `
+  const panelStatuses = ['en_validation', 'confirme', 'non_envoye'];
+  const validationPanel = !panelStatuses.includes(status) ? '' : `
     <div class="validation-panel ${status}">
       <div class="validation-counts">
         <span class="vcount ok">${tally.confirmed} confirmée${tally.confirmed > 1 ? 's' : ''}</span>
         ${tally.waiting ? `<span class="vcount wait">${tally.waiting} en attente</span>` : ''}
         ${tally.toHandle ? `<span class="vcount act">${tally.toHandle} à traiter</span>` : ''}
       </div>
-      <p class="validation-help">${status === 'confirme'
-        ? 'Toutes les visites sont confirmées. Le tour peut être partagé avec un acheteur.'
-        : tally.toHandle
-          ? 'Des courtiers ont répondu autre chose qu\'une confirmation. Traitez ces réponses pour débloquer le partage.'
-          : 'Demandes envoyées. En attente de la réponse des courtiers inscripteurs.'}</p>
+      <p class="validation-help">${status === 'non_envoye'
+        ? `Toutes les visites sont confirmées. ${esc(buyer.prenom)} n'a pas encore reçu le tour.`
+        : status === 'confirme'
+          ? 'Toutes les visites sont confirmées. Le tour peut être partagé avec un acheteur.'
+          : tally.toHandle
+            ? 'Des courtiers ont répondu autre chose qu\'une confirmation. Traitez ces réponses pour débloquer le partage.'
+            : 'Demandes envoyées. En attente de la réponse des courtiers inscripteurs.'}</p>
     </div>`;
 
   return `
@@ -1556,9 +1586,11 @@ function renderBuilderScreen() {
 function renderFooterActions(propertyCount, status, tally) {
   const del = `<button class="btn btn-danger-outline" id="btn-delete-tour">${status === 'brouillon'
     ? 'Supprimer' : 'Supprimer ce tour et annuler les demandes de visites'}</button>`;
-  // Le partage se fait sur l'écran de choix du client : ici on ne fait que s'y
-  // rendre, d'où « Choisir l'acheteur » et non « Choisir et partager ».
-  const shareLabel = state.draft.buyer ? 'Partager avec l\'acheteur' : 'Choisir l\'acheteur';
+  // L'envoi se fait sur l'écran de choix du client : ici on ne fait que s'y
+  // rendre, d'où « Choisir l'acheteur » et non « Choisir et envoyer ». Quand
+  // l'acheteur est déjà retenu, cet écran sert d'écran de confirmation — on y
+  // relit le tour et le destinataire avant que ça parte.
+  const shareLabel = state.draft.buyer ? 'Envoyer le tour à l\'acheteur' : 'Choisir l\'acheteur';
 
   // Étape 1 : envoyer aux courtiers est l'action attendue, enregistrer met le
   // tour de côté pour l'envoyer plus tard. Le second est en secondaire pour que
@@ -1587,8 +1619,10 @@ function renderFooterActions(propertyCount, status, tally) {
       ${del}
     `;
   }
-  // Étape 2 : les visites sont confirmées, il reste à choisir le client.
-  if (status === 'confirme') {
+  // Étape 2 : les visites sont confirmées. Reste à choisir le client
+  // (« confirme ») puis à lui envoyer le tour (« non_envoye ») — deux gestes,
+  // une seule action primaire à chaque fois.
+  if (status === 'confirme' || status === 'non_envoye') {
     return `
       <button class="btn btn-primary" id="btn-share-buyer">${shareLabel}</button>
       ${del}
@@ -2560,6 +2594,25 @@ function bindListEvents() {
   };
 }
 
+// L'acheteur retenu par l'écran : celui sélectionné dans la liste, ou celui
+// que le formulaire vient de décrire (créé ou mis à jour au passage).
+function resolveContactBuyer() {
+  if (state.contactSelectedBuyer) return state.contactSelectedBuyer;
+  if (!state.showBuyerForm) return null;
+  const f = state.buyerFormDraft;
+  if (!f) return null;
+  const buyer = { id: f.editingId || uid(), prenom: f.prenom, nom: f.nom, email: f.emails[0], tel: f.tels[0] };
+  const idx = state.buyers.findIndex(b => b.id === buyer.id);
+  if (idx >= 0) state.buyers[idx] = buyer; else state.buyers.push(buyer);
+  return buyer;
+}
+
+function backToBuilderFromContact() {
+  state.contactPurpose = 'create';
+  state.screen = 'builder';
+  render();
+}
+
 function bindContactEvents() {
 
   const search = document.getElementById('contact-search');
@@ -2597,30 +2650,27 @@ function bindContactEvents() {
 
   const saveBtn = document.getElementById('btn-save-contact');
   if (saveBtn) saveBtn.onclick = () => {
-    let buyer = state.contactSelectedBuyer;
-    if (!buyer && state.showBuyerForm) {
-      const f = state.buyerFormDraft;
-      if (f.editingId) {
-        buyer = { id: f.editingId, prenom: f.prenom, nom: f.nom, email: f.emails[0], tel: f.tels[0] };
-        const idx = state.buyers.findIndex(b => b.id === f.editingId);
-        if (idx >= 0) state.buyers[idx] = buyer; else state.buyers.push(buyer);
-      } else {
-        buyer = { id: uid(), prenom: f.prenom, nom: f.nom, email: f.emails[0], tel: f.tels[0] };
-        state.buyers.push(buyer);
-      }
-    }
+    const buyer = resolveContactBuyer();
     if (!buyer) return;
     if (state.contactPurpose === 'share') {
       shareTourWithBuyer(buyer);
-      state.contactPurpose = 'create';
-      state.screen = 'builder';
-      render();
-      showToast(`Tour partagé avec ${buyer.prenom} ${buyer.nom}.`, 'success');
+      backToBuilderFromContact();
+      showToast(`Tour envoyé à ${buyer.prenom} ${buyer.nom}.`, 'success');
       return;
     }
     state.draft = newDraft(buyer);
     state.screen = 'builder';
     render();
+  };
+  // Même écran, deux issues : envoyer le tour, ou seulement noter à qui il est
+  // destiné. Le second garde le tour en « Non envoyé ».
+  const attachBtn = document.getElementById('btn-attach-contact');
+  if (attachBtn) attachBtn.onclick = () => {
+    const buyer = resolveContactBuyer();
+    if (!buyer) return;
+    attachBuyerToTour(buyer);
+    backToBuilderFromContact();
+    showToast(`${buyer.prenom} ${buyer.nom} enregistré. Le tour ne lui a pas encore été envoyé.`);
   };
   const cancelBtn = document.getElementById('btn-cancel-contact');
   if (cancelBtn) cancelBtn.onclick = () => {
@@ -2656,8 +2706,11 @@ function bindBuyerFormEvents() {
 }
 
 function syncSaveButton() {
-  const btn = document.getElementById('btn-save-contact');
-  if (btn) btn.disabled = !buyerFormValid();
+  const valid = buyerFormValid();
+  ['btn-save-contact', 'btn-attach-contact'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = !valid;
+  });
 }
 
 // Sortie d'un tour : sans travail en cours on part directement, sinon on
