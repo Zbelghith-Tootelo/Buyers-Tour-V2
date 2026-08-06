@@ -6,35 +6,24 @@
 /* ---------------- Icons ---------------- */
 
 const ICONS = {
-  inbox: `<path d="M3 8l9 6 9-6M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
-  send: `<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   hourglass: `<path d="M6 2h12M6 22h12M6 2v5a6 6 0 0012 0V2M6 22v-5a6 6 0 0112-0v5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
-  tour: `<path d="M3 10.5L12 3l9 7.5M5 9.5V21h14V9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 3l9 7.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="18.5" cy="6" r="3.2" fill="#F59E0B" stroke="white" stroke-width="1"/>`,
-  home: `<path d="M3 10.5L12 3l9 7.5V21H3V10.5z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   doc: `<path d="M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/><path d="M9 12h6M9 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
-  calendar: `<rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
-  map: `<path d="M9 3L3 5v16l6-2 6 2 6-2V3l-6 2-6-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/><path d="M9 3v16M15 5v16" stroke="currentColor" stroke-width="1.6"/>`,
-  gear: `<circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9c.2.6.7 1 1.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
   info: `<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M12 11v5.5M12 8v.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
   search: `<circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
   plus: `<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
   chevronRight: `<path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
-  chevronDown: `<path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   chevronUp: `<path d="M18 15l-6-6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   pencil: `<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   trash: `<path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6h16z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   x: `<path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
   check: `<path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
-  checkCircle: `<path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   drag: { viewBox: '0 0 31 30', content: `<path d="M30.1842 11.4211C30.6348 11.4211 31 11.7863 31 12.2368C31 12.6874 30.6348 13.0526 30.1842 13.0526H0.815789C0.365241 13.0526 0 12.6874 0 12.2368C0 11.7863 0.365241 11.4211 0.815789 11.4211H30.1842Z" fill="currentColor"/><path d="M30.1842 16.3158C30.6348 16.3158 31 16.681 31 17.1316C31 17.5821 30.6348 17.9474 30.1842 17.9474H0.815789C0.365241 17.9474 0 17.5821 0 17.1316C0 16.681 0.365241 16.3158 0.815789 16.3158H30.1842Z" fill="currentColor"/><path d="M14.6336 1.5C15.0185 0.833332 15.9807 0.833334 16.3656 1.5L19.579 7.06579C19.9639 7.73246 19.4828 8.56579 18.713 8.56579H12.2862C11.5164 8.56579 11.0353 7.73246 11.4202 7.06579L14.6336 1.5Z" fill="currentColor"/><path d="M16.3664 27.8684C15.9815 28.5351 15.0193 28.5351 14.6344 27.8684L11.421 22.3026C11.0361 21.636 11.5172 20.8026 12.287 20.8026H18.7138C19.4836 20.8026 19.9647 21.636 19.5798 22.3026L16.3664 27.8684Z" fill="currentColor"/>` },
   pause: `<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/>`,
   car: `<path d="M5 17h14M5 17a2 2 0 104 0M15 17a2 2 0 104 0M3 17l1.5-5.5A2 2 0 016.4 10h11.2a2 2 0 011.9 1.5L21 17M6 10l1-4h10l1 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   warning: `<path d="M12 9v4M12 17h.01M10.3 3.9L2.6 18a1.6 1.6 0 001.4 2.4h16a1.6 1.6 0 001.4-2.4L13.7 3.9a1.6 1.6 0 00-2.8 0z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   mapPinOutline: `<path d="M12 22s7-7.4 7-12.5A7 7 0 105 9.5C5 14.6 12 22 12 22z" stroke="currentColor" stroke-width="1.6" fill="none"/><circle cx="12" cy="9.5" r="2.3" stroke="currentColor" stroke-width="1.6" fill="none"/>`,
   arrowLeft: `<path d="M19 12H5M11 18l-6-6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
-  logout: `<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   cart: `<circle cx="9" cy="20" r="1.4" fill="currentColor"/><circle cx="18" cy="20" r="1.4" fill="currentColor"/><path d="M2 3h2l2.6 12.6a2 2 0 002 1.6h8.9a2 2 0 002-1.6L21 7H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
-  flag: `<path d="M6 3v18M6 4h11l-2.5 4L17 12H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   sync: `<path d="M3 12a9 9 0 0115.3-6.4M21 12a9 9 0 01-15.3 6.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M18.6 3.6v4.2h-4.2M5.4 20.4v-4.2h4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   layers: `<path d="M12 3l8.5 4.5L12 12 3.5 7.5 12 3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   star: { viewBox: '0 0 27 26', content: `<path d="M13.1016 0.5C13.8575 0.5 14.5467 0.933553 14.873 1.61523L17.7061 7.49512L24.0322 8.4375L24.0332 8.43848C24.7731 8.55044 25.3802 9.07198 25.6123 9.78027C25.8454 10.4919 25.6556 11.2766 25.1279 11.8027L20.5322 16.3887L21.623 22.873V22.875C21.7455 23.6167 21.4391 24.3637 20.834 24.8076C20.222 25.2564 19.4148 25.3039 18.7539 24.9521L18.752 24.9502L13.1064 21.9092L7.46094 24.9502L7.45898 24.9521C6.79541 25.3053 5.99013 25.2494 5.38184 24.8096C4.77244 24.3687 4.46771 23.6146 4.58984 22.875V22.874L5.6748 16.3887L1.08008 11.8027C0.550316 11.2744 0.369538 10.4904 0.594727 9.78418C0.822466 9.07009 1.43758 8.55008 2.1748 8.43848L2.17578 8.4375L8.49707 7.49512L11.3311 1.61523L11.332 1.61426C11.6616 0.936913 12.3428 0.500156 13.1016 0.5Z" stroke="currentColor"/>` },
@@ -701,7 +690,6 @@ const state = {
   contactPurpose: 'create',  // 'create' (étape 1) | 'share' (étape 4)
   pendingLeave: null,        // navigation en attente de confirmation
   showBuyerForm: false,
-  buyerFormErrors: {},
   modal: null,              // { type, ...payload }
   destModalTab: 'nom',
   destModalSearch: '',
@@ -748,25 +736,33 @@ function hasUnsavedWork() {
   return !state.editingTourId && state.draft.stops.length > 0;
 }
 
-// Enregistre le brouillon courant sans rien envoyer. Partagé par le bouton
-// « Enregistrer » et par la sortie de secours du modal de confirmation.
-function saveDraftAsTour() {
+// Seul chemin par lequel le brouillon est écrit dans le tour enregistré. Les
+// cinq gestes qui enregistrent — mettre de côté, envoyer aux courtiers, choisir
+// l'acheteur, lui envoyer le tour, publier une mise à jour — recopient tous le
+// même brouillon et ne se distinguent que par les horodatages qu'ils posent.
+// `patch` porte cette différence ; le reste n'a à exister qu'une fois.
+function commitDraft(patch = {}) {
+  const fields = {
+    buyerId: state.draft.buyer ? state.draft.buyer.id : null,
+    date: state.draft.date,
+    time: state.draft.time,
+    stops: state.draft.stops,
+  };
   const existing = currentTour();
   if (existing) {
-    existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
-    existing.date = state.draft.date;
-    existing.time = state.draft.time;
-    existing.stops = state.draft.stops;
+    Object.assign(existing, fields, patch);
   } else {
-    const newId = uid();
-    state.tours.push({
-      id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
-      date: state.draft.date, time: state.draft.time,
-      stops: state.draft.stops, sentAt: null,
-    });
-    state.editingTourId = newId;
+    const created = { id: uid(), sentAt: null, relancedAt: null, sharedAt: null, ...fields, ...patch };
+    state.tours.push(created);
+    state.editingTourId = created.id;
   }
   state.dirty = false;
+}
+
+// Met le tour de côté sans rien envoyer. Bouton « Enregistrer » et sortie de
+// secours du modal de confirmation.
+function saveDraftAsTour() {
+  commitDraft();
 }
 
 // Confirming a visit locks it at the time it currently occupies in the schedule.
@@ -924,55 +920,25 @@ function relanceTour() {
 // « Non envoyé ». Sépare le choix du destinataire de l'envoi, pour qu'un
 // acheteur puisse être noté avant que le tour soit prêt à partir.
 function attachBuyerToTour(buyer) {
-  const t = currentTour();
   state.draft.buyer = buyer;
-  if (t) {
-    t.buyerId = buyer.id;
-    t.stops = state.draft.stops;
-    t.date = state.draft.date;
-    t.time = state.draft.time;
-  }
-  state.dirty = false;
+  commitDraft();
 }
 
 // Étape 4 : rattacher l'acheteur et lui transmettre le tour.
 function shareTourWithBuyer(buyer) {
-  const t = currentTour();
   state.draft.buyer = buyer;
-  if (t) {
-    t.buyerId = buyer.id;
-    t.stops = state.draft.stops;
-    t.date = state.draft.date;
-    t.time = state.draft.time;
-    t.sharedAt = Date.now();
-  }
-  state.dirty = false;
+  commitDraft({ sharedAt: Date.now() });
 }
 
 // Étape 1 → 3 : les demandes partent aux courtiers inscripteurs. Prévenir
 // l'acheteur au passage ne vaut que s'il est déjà connu ; sinon le partage
 // viendra à l'étape 2, une fois les visites confirmées.
 function sendTourToBrokers(notifyBuyer) {
-  const existing = currentTour();
-  const sharedAt = notifyBuyer && state.draft.buyer ? Date.now() : null;
-  if (existing) {
-    existing.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
-    existing.date = state.draft.date;
-    existing.time = state.draft.time;
-    existing.stops = state.draft.stops;
-    existing.sentAt = Date.now();
-    existing.relancedAt = null;
-    existing.sharedAt = sharedAt;
-  } else {
-    const newId = uid();
-    state.tours.push({
-      id: newId, buyerId: state.draft.buyer ? state.draft.buyer.id : null,
-      date: state.draft.date, time: state.draft.time,
-      stops: state.draft.stops, sentAt: Date.now(), relancedAt: null, sharedAt,
-    });
-    state.editingTourId = newId;
-  }
-  state.dirty = false;
+  commitDraft({
+    sentAt: Date.now(),
+    relancedAt: null,
+    sharedAt: notifyBuyer && state.draft.buyer ? Date.now() : null,
+  });
   state.modal = null;
   render();
   showToast(
@@ -983,15 +949,11 @@ function sendTourToBrokers(notifyBuyer) {
   );
 }
 
+// Le tour est déjà parti et vient d'être modifié : on enregistre, et `notify`
+// dit si les destinataires en sont prévenus. La notification n'est pas un état
+// du tour — elle part ou elle ne part pas — donc rien à stocker de plus.
 function saveDraftToTour(notify, notifyBuyer = false) {
-  const t = state.tours.find(x => x.id === state.editingTourId);
-  if (!t) return;
-  t.buyerId = state.draft.buyer ? state.draft.buyer.id : null;
-  t.date = state.draft.date;
-  t.time = state.draft.time;
-  t.stops = state.draft.stops;
-  if (notify) t.sharedWithBuyer = notifyBuyer;
-  state.dirty = false;
+  commitDraft();
   render();
   showToast(
     !notify
@@ -1090,16 +1052,16 @@ function computeSchedule(draft) {
 /* ---------------- Rendering ---------------- */
 
 const NAV_ITEMS = [
-  { id: 'inbox', label: 'Boîte de réception', icon: 'inbox', img: 'assets/menu/inbox.svg', badge: 7 },
-  { id: 'sendmsg', label: 'Envoi de message', icon: 'send', img: 'assets/menu/send.svg' },
-  { id: 'waiting', label: 'Attente de réponse', icon: 'hourglass', img: 'assets/menu/wait.svg', badge: 3 },
-  { id: 'tours', label: 'Tour de visites', icon: 'tour', img: 'assets/menu/tour.svg' },
-  { id: 'properties', label: 'Mes propriétés', icon: 'home', img: 'assets/menu/properties.svg' },
-  { id: 'reports', label: 'Rapports', icon: 'doc', img: 'assets/menu/reports.svg' },
-  { id: 'calendar', label: 'Calendrier', icon: 'calendar', img: 'assets/menu/calendar.svg' },
-  { id: 'map', label: 'Carte', icon: 'map', img: 'assets/menu/map.svg' },
-  { id: 'settings', label: 'Paramètres', icon: 'gear', img: 'assets/menu/settings.svg' },
-  { id: 'help', label: 'Aide', icon: 'info', img: 'assets/menu/help.svg' },
+  { id: 'inbox', label: 'Boîte de réception', img: 'assets/menu/inbox.svg', badge: 7 },
+  { id: 'sendmsg', label: 'Envoi de message', img: 'assets/menu/send.svg' },
+  { id: 'waiting', label: 'Attente de réponse', img: 'assets/menu/wait.svg', badge: 3 },
+  { id: 'tours', label: 'Tour de visites', img: 'assets/menu/tour.svg' },
+  { id: 'properties', label: 'Mes propriétés', img: 'assets/menu/properties.svg' },
+  { id: 'reports', label: 'Rapports', img: 'assets/menu/reports.svg' },
+  { id: 'calendar', label: 'Calendrier', img: 'assets/menu/calendar.svg' },
+  { id: 'map', label: 'Carte', img: 'assets/menu/map.svg' },
+  { id: 'settings', label: 'Paramètres', img: 'assets/menu/settings.svg' },
+  { id: 'help', label: 'Aide', img: 'assets/menu/help.svg' },
 ];
 
 function renderSidebarNav() {
