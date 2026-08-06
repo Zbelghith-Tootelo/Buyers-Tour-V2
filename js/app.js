@@ -180,15 +180,62 @@ function addressSuggestions(q) {
   // la contient pas n'est pas une suggestion, c'est du bruit : mieux vaut dire
   // qu'on n'a rien trouvé et offrir d'ajouter l'adresse. Sans mot distinctif —
   // « 500 » seul, « 500 rue » — on propose toujours des pistes.
-  const words = normalizeText(q.replace(num, ' '))
+  // On ne retient que la partie « rue » de la saisie et celle de la suggestion :
+  // sinon une ville commune suffirait à proposer une rue qui n'a rien à voir.
+  const typedStreet = q.split(',')[0] || '';
+  const words = normalizeText(typedStreet.replace(num, ' '))
     .split(/[^a-z0-9]+/)
     .filter(w => w.length > 2 && !ADDRESS_FILLER.includes(w));
   const known = new Set(MLS_POOL.map(p => normalizeText(p.address)));
   return SUGGESTION_STREETS
-    .filter(street => !words.length || words.some(w => normalizeText(street).includes(w)))
+    .filter(street => !words.length || words.some(w => normalizeText(street.split(',')[0]).includes(w)))
     .map(street => ({ id: 'sug-' + num + '-' + hashStr(street), address: `${num} ${street}` }))
     .filter(sug => !known.has(normalizeText(sug.address)))
     .slice(0, 4);
+}
+
+const PROVINCES = [
+  ['QC', 'Québec'], ['ON', 'Ontario'], ['NB', 'Nouveau-Brunswick'], ['NS', 'Nouvelle-Écosse'],
+  ['PE', 'Île-du-Prince-Édouard'], ['NL', 'Terre-Neuve-et-Labrador'], ['MB', 'Manitoba'],
+  ['SK', 'Saskatchewan'], ['AB', 'Alberta'], ['BC', 'Colombie-Britannique'],
+  ['YT', 'Yukon'], ['NT', 'Territoires du Nord-Ouest'], ['NU', 'Nunavut'],
+];
+
+// Découpe « 567 rue des Développeurs, Boucherville » en numéro, rue et ville :
+// ce que le courtier vient de taper n'a pas à être retapé.
+function splitTypedAddress(q) {
+  const parts = (q || '').split(',').map(p => p.trim()).filter(Boolean);
+  const first = parts[0] || '';
+  const num = (first.match(/^(\d{1,6})/) || [])[1] || '';
+  const street = first.replace(/^\d{1,6}\s*/, '').trim();
+  return {
+    num,
+    street: street ? street.charAt(0).toUpperCase() + street.slice(1) : '',
+    city: parts[1] || '',
+  };
+}
+
+// Recompose l'adresse au format du catalogue, pour qu'un arrêt hors catalogue se
+// lise comme les autres dans la liste et sur la carte.
+function composeAddress(f) {
+  const line = `${f.num} ${f.street}${f.unit ? `, app. ${f.unit}` : ''}`;
+  return `${line}, ${f.city}, ${f.province}${f.postal ? ' ' + f.postal.toUpperCase() : ''}`;
+}
+
+function newPropertyDraft(typed) {
+  const { num, street, city } = splitTypedAddress(typed);
+  return { num, street, unit: '', city, province: 'QC', postal: '' };
+}
+
+const NEW_PROPERTY_REQUIRED = [
+  ['num', 'le numéro civique'],
+  ['street', 'le nom de la rue'],
+  ['city', 'la ville'],
+  ['province', 'la province'],
+];
+function newPropertyMissing() {
+  const f = state.newProperty || {};
+  return NEW_PROPERTY_REQUIRED.filter(([k]) => !String(f[k] || '').trim()).map(([, label]) => label);
 }
 
 // Greater Montréal bounds, used to place custom stops that have no MLS listing.
@@ -331,7 +378,12 @@ function routeTotals(stops) {
   }
   return { km, min, count: props.length };
 }
-function courtierFor(mls) { return COURTIERS_INSCRIPTEURS[hashStr(mls) % COURTIERS_INSCRIPTEURS.length]; }
+// Une propriété hors catalogue n'a pas de courtier inscripteur connu : c'est le
+// courtier acheteur qui le désigne, d'où le null plutôt qu'un nom tiré au hasard.
+function courtierFor(mls) {
+  if (!mls) return null;
+  return COURTIERS_INSCRIPTEURS[hashStr(mls) % COURTIERS_INSCRIPTEURS.length];
+}
 function courtierPhoneFor(courtier) {
   const h = hashStr(courtier);
   return `(${514 + (h % 3) * 100}) ${100 + (h % 900)}-${1000 + ((h >>> 3) % 9000)}`;
@@ -372,7 +424,7 @@ function makeStop(address, mls, opts = {}) {
     mls,
     lat: opts.lat ?? listing?.lat ?? null,
     lng: opts.lng ?? listing?.lng ?? null,
-    courtier: courtierFor(mls),
+    courtier: opts.courtier || courtierFor(mls),
     status: opts.status || 'pending',
     duration: opts.duration || 30,
     locked: opts.status === 'confirmed',
@@ -599,6 +651,8 @@ const state = {
   destModalTab: 'nom',
   destModalSearch: '',
   destModalPrefillAddress: '',
+  newProperty: null,        // formulaire « Ajouter une propriété inexistante »
+  newPropertyTouched: false, // les champs manquants ne sont signalés qu'après un premier envoi
   insertBeforeId: null,     // id de l'étape avant laquelle insérer la prochaine destination
   dragStopId: null,
   dirty: false,             // unsaved edits on a tour that was already sent
@@ -1498,6 +1552,7 @@ function renderModal() {
 
   if (state.modal.type === 'flags') { root.innerHTML = renderFlagsModal(); return; }
   if (state.modal.type === 'destination') { root.innerHTML = renderDestinationModal(); return; }
+  if (state.modal.type === 'newProperty') { root.innerHTML = renderNewPropertyModal(); return; }
   if (state.modal.type === 'visitRequest') { root.innerHTML = renderVisitRequestModal(); return; }
   if (state.modal.type === 'confirmSend') { root.innerHTML = renderConfirmSendModal(); return; }
   if (state.modal.type === 'confirmSendUpdate') { root.innerHTML = renderConfirmSendUpdateModal(); return; }
@@ -1576,11 +1631,93 @@ function renderEditBuyerModal() {
     </div>`;
 }
 
+// Une adresse absente du catalogue se saisit champ par champ, pas en une ligne
+// libre : c'est ce qui part par courriel au courtier inscripteur, et une adresse
+// approximative n'amène personne devant la bonne porte.
+function renderNewPropertyModal() {
+  const f = state.newProperty;
+  const missing = state.newPropertyTouched ? newPropertyMissing() : [];
+  const err = key => state.newPropertyTouched && !String(f[key] || '').trim() ? ' is-error' : '';
+
+  return `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-head vr-head">
+          <button class="vr-back" id="np-back" title="Retour à la recherche">${icon('arrowLeft')}</button>
+          <h2 class="vr-title">Ajouter une propriété inexistante</h2>
+          <span class="vr-head-spacer"></span>
+        </div>
+        <div class="modal-body">
+          <div class="field-row">
+            <div class="field" style="flex:0 0 130px;">
+              <label class="field-label" for="np-num">Numéro civique <span class="req">*</span></label>
+              <input class="input${err('num')}" id="np-num" value="${esc(f.num)}" inputmode="numeric" placeholder="567">
+            </div>
+            <div class="field">
+              <label class="field-label" for="np-street">Nom de la rue <span class="req">*</span></label>
+              <input class="input${err('street')}" id="np-street" value="${esc(f.street)}" placeholder="Rue des Développeurs">
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="np-unit">Appartement / unité <span class="opt">(optionnel)</span></label>
+            <input class="input" id="np-unit" value="${esc(f.unit)}" placeholder="204">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label class="field-label" for="np-city">Ville <span class="req">*</span></label>
+              <input class="input${err('city')}" id="np-city" value="${esc(f.city)}" placeholder="Boucherville">
+            </div>
+            <div class="field">
+              <label class="field-label" for="np-province">Province <span class="req">*</span></label>
+              <select class="input select${err('province')}" id="np-province">
+                ${PROVINCES.map(([code, label]) => `<option value="${code}" ${f.province === code ? 'selected' : ''}>${label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="np-postal">Code postal <span class="opt">(optionnel)</span></label>
+            <input class="input" id="np-postal" value="${esc(f.postal)}" placeholder="J4B 7K1">
+          </div>
+
+          <div class="info-banner">${icon('info')}
+            <span>Cette propriété n'est pas créée dans le catalogue : la demande de visite part par courriel au courtier inscripteur que vous choisirez à l'étape suivante.</span>
+          </div>
+          ${missing.length ? `<p class="dest-empty" id="np-error">Il manque ${missing.join(', ').replace(/, ([^,]*)$/, ' et $1')}.</p>` : ''}
+        </div>
+        <div class="modal-footer" style="display:flex;flex-direction:column;gap:10px;">
+          <button class="btn btn-primary btn-block" id="np-save">Enregistrer</button>
+          <button class="btn btn-outline btn-block" id="modal-cancel">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderVisitRequestModal() {
   const m = state.modal;
-  const courtier = courtierFor(m.mls);
-  const initials = courtier.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const courtier = m.external ? m.courtier : courtierFor(m.mls);
+  const initials = (courtier || '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const fromOptions = TIME_OPTIONS.map(t => `<option value="${timeToMinutes(t)}" ${timeToMinutes(t) === m.from ? 'selected' : ''}>${t}</option>`).join('');
+
+  // Hors catalogue, personne ne sait à qui la demande doit partir : le courtier
+  // inscripteur se choisit ici, et sans lui il n'y a pas de demande à envoyer.
+  const brokerHtml = !m.external ? `
+    <div class="vr-broker">
+      <span class="vr-broker-avatar">${esc(initials)}</span>
+      <div>
+        <p class="vr-broker-name">${esc(courtier)}</p>
+        <p class="vr-broker-agency">Courtier inscripteur, Immocontact</p>
+      </div>
+    </div>` : `
+    <div class="vr-broker-pick">
+      <span class="vr-broker-avatar ${courtier ? '' : 'is-empty'}">${courtier ? esc(initials) : icon('search')}</span>
+      <div class="field" style="flex:1;margin-bottom:0;">
+        <label class="field-label" for="vr-courtier">Courtier inscripteur <span class="req">*</span></label>
+        <select class="input select" id="vr-courtier">
+          <option value="">Sélectionnez un courtier</option>
+          ${COURTIERS_INSCRIPTEURS.map(c => `<option value="${esc(c)}" ${c === courtier ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
 
   return `
     <div class="modal-overlay" id="modal-overlay">
@@ -1591,16 +1728,13 @@ function renderVisitRequestModal() {
           <span class="vr-head-spacer"></span>
         </div>
         <div class="modal-body">
-          <div class="vr-broker">
-            <span class="vr-broker-avatar">${esc(initials)}</span>
-            <div>
-              <p class="vr-broker-name">${esc(courtier)}</p>
-              <p class="vr-broker-agency">Courtier inscripteur, Immocontact</p>
-            </div>
-          </div>
+          ${brokerHtml}
           <div class="vr-property">
-            <img class="result-thumb" src="${thumbFor(m.mls, m.address)}" alt="">
+            ${m.external
+              ? `<span class="result-pin">${icon('mapPinOutline')}</span>`
+              : `<img class="result-thumb" src="${thumbFor(m.mls, m.address)}" alt="">`}
             <span class="vr-property-address">${esc(m.address)}</span>
+            ${m.external ? `<span class="ext-chip" title="Hors catalogue : la demande part par courriel, sans créer de fiche.">Hors catalogue</span>` : ''}
           </div>
 
           <div class="field">
@@ -1636,7 +1770,10 @@ function renderVisitRequestModal() {
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-primary" id="vr-save" style="min-width:220px;">Enregistrer</button>
+          <button class="btn btn-primary" id="vr-save" style="min-width:220px;" ${m.external && !courtier ? 'disabled' : ''}>Enregistrer</button>
+          ${m.external && !courtier
+            ? `<p class="helper-text" style="margin:10px 0 0;">Choisissez le courtier inscripteur : c'est lui qui recevra la demande de visite.</p>`
+            : ''}
         </div>
       </div>
     </div>`;
@@ -1913,7 +2050,7 @@ function renderDestinationModal() {
         ${suggestions.map(sug => suggestionRow(sug)).join('')}` : ''}
       ${!results.length && !suggestions.length ? `
         <p class="dest-empty">Aucun résultat, veuillez raffiner votre recherche ou ajouter une nouvelle adresse.</p>
-        <button class="btn btn-primary btn-block" data-goto-arret style="margin-top:14px;">${icon('plus')} Ajouter une nouvelle adresse</button>` : ''}
+        <button class="btn btn-primary btn-block" data-new-property style="margin-top:14px;">${icon('plus')} Ajouter une nouvelle adresse</button>` : ''}
     ` : `
       ${results.map(p => resultRow(p, addedMls)).join('') || `
         <p class="helper-text" style="margin-top:14px;">Aucun résultat.</p>
@@ -2992,6 +3129,7 @@ function bindModalEvents() {
     });
   }
   if (state.modal.type === 'destination') bindDestinationModalEvents();
+  if (state.modal.type === 'newProperty') bindNewPropertyModalEvents();
   if (state.modal.type === 'visitRequest') bindVisitRequestModalEvents();
   if (state.modal.type === 'confirmSend') {
     const brokerOnly = document.getElementById('btn-send-broker-only');
@@ -3100,11 +3238,68 @@ function bindEditBuyerModalEvents() {
   };
 }
 
+// Ouvre la demande de visite pour une propriété hors catalogue : même écran que
+// pour une fiche du catalogue, au courtier inscripteur près, qui reste à choisir.
+function openVisitRequestForNewProperty(address, prevDestModal) {
+  const rows = computeSchedule(state.draft);
+  const lastProp = rows.filter(r => r.stop.type === 'property').pop();
+  const defaultStart = Math.min(
+    lastProp ? lastProp.start + lastProp.stop.duration + 15 : timeToMinutes(state.draft.time),
+    20 * 60);
+  state.modal = {
+    type: 'visitRequest',
+    mls: null,
+    address,
+    external: true,
+    courtier: '',
+    date: state.draft.date,
+    from: defaultStart,
+    duration: 30,
+    comment: '',
+    callback: '',
+    prevDestModal,
+  };
+  render();
+}
+
+function bindNewPropertyModalEvents() {
+  const f = state.newProperty;
+  const bind = (id, key, transform) => {
+    const el = document.getElementById(id);
+    if (el) el.oninput = () => { f[key] = transform ? transform(el.value) : el.value; };
+  };
+  bind('np-num', 'num', v => v.replace(/[^\d]/g, ''));
+  bind('np-street', 'street');
+  bind('np-unit', 'unit');
+  bind('np-city', 'city');
+  bind('np-postal', 'postal');
+  const prov = document.getElementById('np-province');
+  if (prov) prov.onchange = () => { f.province = prov.value; };
+
+  const back = document.getElementById('np-back');
+  if (back) back.onclick = () => { state.modal = { type: 'destination', initialStops: state.draft.stops.length }; render(); };
+
+  const save = document.getElementById('np-save');
+  if (save) save.onclick = () => {
+    if (newPropertyMissing().length) {
+      state.newPropertyTouched = true;
+      render();
+      document.getElementById('np-error').scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    state.newPropertyTouched = false;
+    openVisitRequestForNewProperty(composeAddress(f), { type: 'newProperty' });
+  };
+}
+
 function bindVisitRequestModalEvents() {
   const m = state.modal;
 
   const backBtn = document.getElementById('vr-back');
   if (backBtn) backBtn.onclick = () => { state.modal = m.prevDestModal; render(); };
+
+  const courtierSelect = document.getElementById('vr-courtier');
+  if (courtierSelect) courtierSelect.onchange = () => { m.courtier = courtierSelect.value; render(); };
 
   const dateInput = document.getElementById('vr-date');
   if (dateInput) dateInput.onchange = () => { m.date = dateInput.value; };
@@ -3126,10 +3321,13 @@ function bindVisitRequestModalEvents() {
 
   const saveBtn = document.getElementById('vr-save');
   if (saveBtn) saveBtn.onclick = () => {
+    // Sans courtier inscripteur, la demande n'a pas de destinataire. Le bouton
+    // est déjà désactivé ; ce garde-fou couvre l'appel direct.
+    if (m.external && !m.courtier) return;
     // Edit mode: update the existing stop in place; otherwise add a new one.
     const stop = m.editStopId
       ? state.draft.stops.find(s => s.id === m.editStopId)
-      : makeStop(m.address, m.mls, { status: 'pending' });
+      : makeStop(m.address, m.mls, { status: 'pending', external: m.external, courtier: m.courtier });
     if (!stop) return;
     // Pin the stop to the requested slot so the schedule and conflict
     // warnings reflect what was asked to the listing broker.
@@ -3143,13 +3341,25 @@ function bindVisitRequestModalEvents() {
       state.draft.date = m.date;
     }
     markDirtyIfSent();
-    state.modal = m.prevDestModal;
+    // Le formulaire de saisie a fait son travail : on revient à la recherche,
+    // pas à des champs déjà consommés.
+    const back = m.prevDestModal;
+    if (back && back.type === 'newProperty') {
+      state.newProperty = null;
+      state.newPropertyTouched = false;
+      state.destModalSearch = '';
+      state.modal = { type: 'destination', initialStops: state.draft.stops.length };
+    } else {
+      state.modal = back;
+    }
     render();
     showToast(m.editStopId
       ? 'La demande de visite a été mise à jour.'
       : insertedBefore
         ? `Propriété insérée avant ${stopShortLabel(insertedBefore)}.`
-        : 'La propriété a été ajoutée avec succès.', 'success');
+        : m.external
+          ? `Demande de visite préparée pour ${m.courtier}. Elle partira par courriel.`
+          : 'La propriété a été ajoutée avec succès.', 'success');
   };
 }
 
@@ -3157,20 +3367,23 @@ function bindDestinationModalEvents() {
   document.querySelectorAll('[data-dest-tab]').forEach(el => {
     el.onclick = () => { state.destModalTab = el.getAttribute('data-dest-tab'); state.destModalSearch = ''; state.destModalPrefillAddress = ''; render(); };
   });
+  // Une adresse hors catalogue passe par la même demande de visite qu'une fiche
+  // du catalogue : l'adresse est déjà complète, seul le courtier inscripteur
+  // manque. Pas de formulaire de saisie à traverser pour rien.
   document.querySelectorAll('[data-add-address]').forEach(el => {
-    el.onclick = () => {
-      const address = el.getAttribute('data-add-address');
-      const inserted = addStopToDraft({
-        id: uid(), type: 'property', address, mls: null, status: 'pending',
-        duration: 30, locked: false, visited: false, external: true,
-      });
-      markDirtyIfSent();
-      render();
-      showToast(inserted
-        ? `${address.split(',')[0]} inséré avant ${stopShortLabel(inserted)}.`
-        : `${address.split(',')[0]} ajouté au tour. La demande partira par courriel.`, 'success');
-    };
+    el.onclick = () => openVisitRequestForNewProperty(
+      el.getAttribute('data-add-address'),
+      { type: 'destination', initialStops: state.modal.initialStops });
   });
+  // « Ajouter une nouvelle adresse » : rien ne correspond, l'adresse se saisit
+  // champ par champ avant de choisir le courtier.
+  const gotoNew = document.querySelector('[data-new-property]');
+  if (gotoNew) gotoNew.onclick = () => {
+    state.newProperty = newPropertyDraft(state.destModalSearch);
+    state.newPropertyTouched = false;
+    state.modal = { type: 'newProperty' };
+    render();
+  };
   const gotoArret = document.querySelector('[data-goto-arret]');
   if (gotoArret) gotoArret.onclick = () => {
     state.destModalPrefillAddress = state.destModalTab === 'adresse' ? state.destModalSearch : '';
