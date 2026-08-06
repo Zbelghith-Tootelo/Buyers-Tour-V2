@@ -484,7 +484,7 @@ function makePause(duration = 30) {
 // sont les plus fréquents en pratique et étaient jusqu'ici inexprimables, donc
 // invisibles pour le courtier acheteur qui devait les suivre de tête.
 const STOP_STATUSES = {
-  pending:   { label: 'À confirmer avec le courtier inscripteur', short: 'À confirmer', tone: 'pending', action: true },
+  pending:   { label: 'En attente de confirmation du courtier inscripteur', short: 'En attente', tone: 'pending', action: true },
   confirmed: { label: 'Confirmée', short: 'Confirmée', tone: 'ok', action: false },
   proposed:  { label: 'Autre créneau proposé', short: 'Contre-proposition', tone: 'warn', action: true },
   refused:   { label: 'Visite refusée', short: 'Refusée', tone: 'danger', action: true },
@@ -517,6 +517,14 @@ function effectiveStopStatus(stop, tour) {
 }
 function stopNeedsAction(stop, tour) {
   return !!STOP_STATUSES[effectiveStopStatus(stop, tour)].action;
+}
+
+// « En attente de confirmation » suppose qu'une demande est partie. Sur un tour
+// jamais envoyé elle n'est que préparée, et l'attente n'a pas commencé : même
+// statut, mais on dit lequel des deux est vrai.
+function stopStatusLabel(st, tour) {
+  if (st === 'pending' && !(tour && tour.sentAt)) return 'Demande de visite pas encore envoyée';
+  return STOP_STATUSES[st].label;
 }
 
 function tourStatus(t) {
@@ -1441,7 +1449,7 @@ function renderBuilderScreen() {
     } else {
       const st = effectiveStopStatus(stop, liveTour);
       const stMeta = STOP_STATUSES[st];
-      const statusLabel = `<span class="status-${stMeta.tone}">${esc(stMeta.label)}${st === 'proposed' && stop.proposedStart ? ` — ${stop.proposedStart.replace(':', 'h')}` : ''}</span>`;
+      const statusLabel = `<span class="status-${stMeta.tone}">${esc(stopStatusLabel(st, liveTour))}${st === 'proposed' && stop.proposedStart ? ` — ${stop.proposedStart.replace(':', 'h')}` : ''}</span>`;
       // The simulate control sits on the status itself rather than adding a
       // fourth icon to the action row: it acts on the thing it changes, and the
       // row is already carrying three buttons.
@@ -1770,6 +1778,15 @@ function renderVisitRequestModal() {
   const courtier = m.external ? m.courtier : courtierFor(m.mls);
   const fromOptions = TIME_OPTIONS.map(t => `<option value="${timeToMinutes(t)}" ${timeToMinutes(t) === m.from ? 'selected' : ''}>${t}</option>`).join('');
 
+  // Modifier un arrêt déjà soumis, c'est renégocier avec le courtier
+  // inscripteur : le bouton nomme cet envoi. Tant que rien n'est parti, il n'y a
+  // rien à faire valider — on enregistre, simplement.
+  const editing = !!m.editStopId;
+  const sent = !!(currentTour() && currentTour().sentAt);
+  const saveLabel = !editing ? 'Enregistrer'
+    : sent ? 'Envoyer la modification pour validation'
+    : 'Enregistrer la modification';
+
   // Hors catalogue, personne ne sait à qui la demande doit partir : le courtier
   // inscripteur se cherche ici dans l'annuaire ImmoContact. Une recherche plutôt
   // qu'une liste déroulante — l'annuaire est trop long pour qu'on le déroule, et
@@ -1866,8 +1883,9 @@ function renderVisitRequestModal() {
             <input type="tel" class="input" id="vr-callback" value="${esc(m.callback)}" placeholder="(514) 000-0000">
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn btn-primary" id="vr-save" style="min-width:220px;" ${m.external && !courtierEntry(courtier) ? 'disabled' : ''}>Enregistrer</button>
+        <div class="modal-footer"${editing ? ' style="display:flex;flex-direction:column;gap:10px;"' : ''}>
+          <button class="btn btn-primary${editing ? ' btn-block' : ''}" id="vr-save" ${editing ? '' : 'style="min-width:220px;"'} ${m.external && !courtierEntry(courtier) ? 'disabled' : ''}>${saveLabel}</button>
+          ${editing ? `<button class="btn btn-outline btn-block" id="modal-cancel">Annuler</button>` : ''}
           ${m.external && !courtierEntry(courtier)
             ? `<p class="helper-text" style="margin:10px 0 0;">Choisissez le courtier inscripteur : c'est lui qui recevra la demande de visite.</p>`
             : ''}
@@ -2454,7 +2472,7 @@ function renderEditStopModal() {
           <div class="field">
             <label class="field-label">Statut</label>
             <select class="input select" id="edit-stop-status">
-              <option value="pending" ${stop.status === 'pending' ? 'selected' : ''}>À confirmer avec le courtier inscripteur</option>
+              <option value="pending" ${stop.status === 'pending' ? 'selected' : ''}>En attente de confirmation du courtier inscripteur</option>
               <option value="confirmed" ${stop.status === 'confirmed' ? 'selected' : ''}>Confirmée</option>
             </select>
           </div>
@@ -3467,18 +3485,39 @@ function bindVisitRequestModalEvents() {
       ? state.draft.stops.find(s => s.id === m.editStopId)
       : makeStop(m.address, m.mls, { status: 'pending', external: m.external, courtier: m.courtier });
     if (!stop) return;
+    const newStart = minutesToLabel(m.from).replace('h', ':');
+    // Le créneau demandé est ce sur quoi le courtier s'est engagé. Le déplacer
+    // annule cet engagement : la visite repart en attente de sa confirmation,
+    // quel que soit ce qu'il avait répondu. Le commentaire et le numéro de
+    // rappel, eux, ne changent pas l'heure et ne remettent rien en cause.
+    // La date saisie ici ne déplace le tour que s'il n'a qu'une propriété :
+    // au-delà, elle ne s'applique pas et ne remet donc rien en cause. En ajout,
+    // l'arrêt courant n'est pas encore dans le tour — d'où le +1.
+    const propCount = state.draft.stops.filter(s => s.type === 'property').length
+      + (m.editStopId ? 0 : 1);
+    const dateApplies = m.date !== state.draft.date && propCount === 1;
+    const slotChanged = !!m.editStopId
+      && (stop.lockedStart !== newStart || stop.duration !== m.duration || dateApplies);
     // Pin the stop to the requested slot so the schedule and conflict
     // warnings reflect what was asked to the listing broker.
     stop.locked = true;
-    stop.lockedStart = minutesToLabel(m.from).replace('h', ':');
+    stop.lockedStart = newStart;
     stop.duration = m.duration;
     stop.comment = m.comment;
     stop.callback = m.callback;
-    const insertedBefore = m.editStopId ? null : addStopToDraft(stop);
-    if (m.date !== state.draft.date && state.draft.stops.filter(s => s.type === 'property').length === 1) {
-      state.draft.date = m.date;
+    if (slotChanged) {
+      stop.status = 'pending';
+      stop.proposedStart = null;
     }
-    markDirtyIfSent();
+    const insertedBefore = m.editStopId ? null : addStopToDraft(stop);
+    if (dateApplies) state.draft.date = m.date;
+    // Sur un tour déjà parti, ce bouton envoie : la demande est repartie chez le
+    // courtier inscripteur, il n'y a plus de mise à jour à lui promettre depuis
+    // le pied de page. On enregistre donc directement au lieu de marquer le tour
+    // modifié — sinon l'application redemanderait d'envoyer ce qui vient de l'être.
+    const sentTour = !!(currentTour() && currentTour().sentAt);
+    if (m.editStopId && sentTour) commitDraft();
+    else markDirtyIfSent();
     // Le formulaire de saisie a fait son travail : on revient à la recherche,
     // pas à des champs déjà consommés.
     const back = m.prevDestModal;
@@ -3491,8 +3530,11 @@ function bindVisitRequestModalEvents() {
       state.modal = back;
     }
     render();
+    const destinataire = m.external ? m.courtier : courtierFor(m.mls);
     showToast(m.editStopId
-      ? 'La demande de visite a été mise à jour.'
+      ? sentTour
+        ? `Modification envoyée à ${destinataire} pour validation.${slotChanged ? ' La visite repasse en attente de sa confirmation.' : ''}`
+        : 'La demande de visite a été mise à jour.'
       : insertedBefore
         ? `Propriété insérée avant ${stopShortLabel(insertedBefore)}.`
         : m.external
