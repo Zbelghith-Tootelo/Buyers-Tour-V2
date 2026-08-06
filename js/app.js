@@ -1117,6 +1117,20 @@ function renderSidebarNav() {
   }).join('');
 }
 
+// Le titre de l'écran du tour. « Créer un tour de visites » décrit une action
+// en cours : il ne vaut que tant que rien n'est parti. Dès que le tour existe
+// pour d'autres, on le nomme comme la liste le nomme — par son acheteur — pour
+// qu'on reconnaisse au titre le tour sur lequel on a cliqué.
+function builderTitle() {
+  const d = state.draft;
+  if (!d) return 'Créer un tour de visites';
+  const saved = currentTour();
+  if (!saved || !saved.sentAt) return 'Créer un tour de visites';
+  if (d.buyer) return `Tour de ${d.buyer.prenom} ${d.buyer.nom}`;
+  // Tour parti sans acheteur : la date est le seul nom qu'il ait.
+  return `Tour du ${formatDateLong(d.date)}`;
+}
+
 function setTopbarTitle(title) {
   document.getElementById('topbar-title').textContent = title;
   const mobileTitle = document.getElementById('mobile-nav-title');
@@ -1132,7 +1146,7 @@ function render() {
   // L'écran nomme son objet — l'acheteur — et non l'envoi : on peut en repartir
   // sans avoir rien envoyé.
   else if (state.screen === 'contact') { setTopbarTitle(state.contactPurpose === 'share' ? 'Choisir l\'acheteur' : 'Créer un tour de visites'); main.innerHTML = renderContactScreen(); }
-  else if (state.screen === 'builder') { setTopbarTitle('Créer un tour de visites'); main.innerHTML = renderBuilderScreen(); }
+  else if (state.screen === 'builder') { setTopbarTitle(builderTitle()); main.innerHTML = renderBuilderScreen(); }
   else if (state.screen === 'map') { setTopbarTitle('Carte du tour'); main.innerHTML = renderMapScreen(); }
   else if (state.screen === 'report') { setTopbarTitle('Compte rendu de visite'); main.innerHTML = renderReportScreen(); }
   else if (state.screen === 'menu') { setTopbarTitle('Menu'); main.innerHTML = renderMenuScreen(); }
