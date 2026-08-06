@@ -985,6 +985,11 @@ function tourEndMinutes(draft) {
 
 /* ---------------- Schedule computation ---------------- */
 
+// Palier de planification du tour. Les sélecteurs d'heure ne proposent que des
+// quarts d'heure, et c'est l'unité dans laquelle les courtiers s'entendent.
+const SLOT_MINUTES = 15;
+function ceilToSlot(min) { return Math.ceil(min / SLOT_MINUTES) * SLOT_MINUTES; }
+
 function computeSchedule(draft) {
   let cursor = timeToMinutes(draft.time);
   const rows = [];
@@ -1005,8 +1010,10 @@ function computeSchedule(draft) {
     let conflict = null;
     let start;
     if (stop.type === 'pause') {
-      start = cursor;
-      cursor += stop.duration;
+      // Même palier que les visites : une liste où seule la pause tombe à 15h42
+      // se lit comme une erreur d'arrondi.
+      start = ceilToSlot(cursor);
+      cursor = start + stop.duration;
     } else {
       // On rembobine le curseur au début du créneau, puis la logique d'heure
       // verrouillée s'applique telle quelle : une visite confirmée à une autre
@@ -1027,8 +1034,14 @@ function computeSchedule(draft) {
         start = lockedMin;
         cursor = lockedMin + stop.duration;
       } else {
-        start = cursor;
-        cursor += stop.duration;
+        // Une heure de visite se demande au quart d'heure : c'est le palier sur
+        // lequel les courtiers s'entendent, et les sélecteurs d'heure de
+        // l'application n'en proposent pas d'autre. On arrondit vers le haut —
+        // arrondir vers le bas fixerait la visite avant l'arrivée sur place. Le
+        // trajet réel reste affiché tel quel dans le bandeau ; l'écart est du
+        // battement, pas une durée maquillée.
+        start = ceilToSlot(cursor);
+        cursor = start + stop.duration;
       }
       // La visite la plus longue du créneau décide de la suite du tour.
       if (sharesSlot) cursor = Math.max(cursor, slotEnd);
@@ -3302,8 +3315,10 @@ function bindEditBuyerModalEvents() {
 function openVisitRequestForNewProperty(address, prevDestModal) {
   const rows = computeSchedule(state.draft);
   const lastProp = rows.filter(r => r.stop.type === 'property').pop();
-  const defaultStart = Math.min(
-    lastProp ? lastProp.start + lastProp.stop.duration + 15 : timeToMinutes(state.draft.time),
+  // Arrondi au quart d'heure : le sélecteur « De : » ne propose que ces valeurs,
+  // et une heure hors palier n'y sélectionnerait aucune option.
+  const defaultStart = Math.min(ceilToSlot(
+    lastProp ? lastProp.start + lastProp.stop.duration + 15 : timeToMinutes(state.draft.time)),
     20 * 60);
   state.modal = {
     type: 'visitRequest',
@@ -3495,7 +3510,8 @@ function bindDestinationModalEvents() {
       const anchorIdx = anchor ? state.draft.stops.indexOf(anchor) : state.draft.stops.length;
       const rows = computeSchedule(state.draft);
       const prevProp = rows.filter(r => r.stop.type === 'property' && state.draft.stops.indexOf(r.stop) < anchorIdx).pop();
-      const defaultStart = Math.min(prevProp ? prevProp.start + prevProp.stop.duration + 15 : timeToMinutes(state.draft.time), 20 * 60);
+      const defaultStart = Math.min(ceilToSlot(
+        prevProp ? prevProp.start + prevProp.stop.duration + 15 : timeToMinutes(state.draft.time)), 20 * 60);
       state.modal = {
         type: 'visitRequest',
         mls: prop.mls,
