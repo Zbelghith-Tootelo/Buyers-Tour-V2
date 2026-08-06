@@ -127,6 +127,41 @@ const BUYERS = [
 
 const COURTIERS_INSCRIPTEURS = ['Marie-Ève Gagnon', 'Patrick Simard', 'Nathalie Côté', 'Éric Bouchard', 'Sylvie Paquette'];
 
+// Annuaire ImmoContact. Une demande de visite doit partir à un courtier inscrit,
+// donc la recherche ne propose que cet annuaire — un nom tapé à la main n'est
+// jamais retenu. Séparé du pool d'attribution ci-dessus : y ajouter un nom
+// réattribuerait sinon le courtier de toutes les fiches existantes.
+const COURTIER_DIRECTORY = [
+  { nom: 'Marie-Ève Gagnon', bureau: 'Montréal' },
+  { nom: 'Patrick Simard', bureau: 'Laval' },
+  { nom: 'Nathalie Côté', bureau: 'Longueuil' },
+  { nom: 'Éric Bouchard', bureau: 'Boucherville' },
+  { nom: 'Sylvie Paquette', bureau: 'Brossard' },
+  { nom: 'Jean-François Tremblay', bureau: 'Saint-Lambert' },
+  { nom: 'Caroline Lévesque', bureau: 'Repentigny' },
+  { nom: 'Martin Pelletier', bureau: 'Terrebonne' },
+  { nom: 'Isabelle Fortin', bureau: 'Montréal' },
+  { nom: 'Sébastien Roy', bureau: 'Laval' },
+  { nom: 'Geneviève Bergeron', bureau: 'Saint-Jérôme' },
+  { nom: 'Alain Desjardins', bureau: 'Vaudreuil-Dorion' },
+];
+
+function courtierEntry(nom) {
+  return COURTIER_DIRECTORY.find(c => c.nom === nom) || null;
+}
+// Recherche par nom, prénom ou bureau, accents et casse ignorés : « cote »
+// trouve « Nathalie Côté ».
+function searchCourtiers(q) {
+  const needle = normalizeText(q).trim();
+  if (!needle) return [];
+  return COURTIER_DIRECTORY
+    .filter(c => normalizeText(c.nom + ' ' + c.bureau).includes(needle))
+    .slice(0, 6);
+}
+function initialsOf(nom) {
+  return (nom || '').split(/[\s-]+/).map(w => w[0]).filter(Boolean).join('').slice(0, 2).toUpperCase();
+}
+
 // Coordinates are approximate real positions for each municipality, so the map
 // and the distance-based optimisation behave believably. A real integration
 // would geocode the address instead of carrying lat/lng in the listing.
@@ -1695,29 +1730,53 @@ function renderNewPropertyModal() {
 function renderVisitRequestModal() {
   const m = state.modal;
   const courtier = m.external ? m.courtier : courtierFor(m.mls);
-  const initials = (courtier || '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const fromOptions = TIME_OPTIONS.map(t => `<option value="${timeToMinutes(t)}" ${timeToMinutes(t) === m.from ? 'selected' : ''}>${t}</option>`).join('');
 
   // Hors catalogue, personne ne sait à qui la demande doit partir : le courtier
-  // inscripteur se choisit ici, et sans lui il n'y a pas de demande à envoyer.
+  // inscripteur se cherche ici dans l'annuaire ImmoContact. Une recherche plutôt
+  // qu'une liste déroulante — l'annuaire est trop long pour qu'on le déroule, et
+  // on cherche un nom qu'on connaît déjà (loi de Hick). Un nom absent de
+  // l'annuaire n'est jamais retenu : la demande n'aurait pas de destinataire.
   const brokerHtml = !m.external ? `
     <div class="vr-broker">
-      <span class="vr-broker-avatar">${esc(initials)}</span>
+      <span class="vr-broker-avatar">${esc(initialsOf(courtier))}</span>
       <div>
         <p class="vr-broker-name">${esc(courtier)}</p>
         <p class="vr-broker-agency">Courtier inscripteur, Immocontact</p>
       </div>
-    </div>` : `
-    <div class="vr-broker-pick">
-      <span class="vr-broker-avatar ${courtier ? '' : 'is-empty'}">${courtier ? esc(initials) : icon('search')}</span>
-      <div class="field" style="flex:1;margin-bottom:0;">
-        <label class="field-label" for="vr-courtier">Courtier inscripteur <span class="req">*</span></label>
-        <select class="input select" id="vr-courtier">
-          <option value="">Sélectionnez un courtier</option>
-          ${COURTIERS_INSCRIPTEURS.map(c => `<option value="${esc(c)}" ${c === courtier ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-        </select>
+    </div>` : courtier ? `
+    <div class="vr-broker">
+      <span class="vr-broker-avatar">${esc(initialsOf(courtier))}</span>
+      <div>
+        <p class="vr-broker-name">${esc(courtier)}</p>
+        <p class="vr-broker-agency">Courtier inscripteur, Immocontact${courtierEntry(courtier) ? ' — ' + esc(courtierEntry(courtier).bureau) : ''}</p>
       </div>
+      <button class="btn-inline ghost" id="vr-courtier-clear">Changer</button>
+    </div>` : (() => {
+      const q = m.courtierSearch || '';
+      const found = searchCourtiers(q);
+      return `
+    <div class="vr-broker-pick">
+      <label class="field-label" for="vr-courtier-search">Courtier inscripteur <span class="req">*</span></label>
+      <div class="search-bar" style="margin-bottom:0;">
+        <input type="text" class="input" id="vr-courtier-search" autocomplete="off"
+          placeholder="Rechercher un courtier d'Immocontact…" value="${esc(q)}">
+        ${icon('search')}
+      </div>
+      ${!q ? `<p class="helper-text" style="margin:8px 0 0;">Tapez un nom ou un bureau. Seuls les courtiers inscrits à Immocontact peuvent recevoir une demande de visite.</p>` : found.length ? `
+        <div class="courtier-results">
+          ${found.map(c => `
+            <button type="button" class="courtier-row" data-pick-courtier="${esc(c.nom)}">
+              <span class="vr-broker-avatar">${esc(initialsOf(c.nom))}</span>
+              <span class="courtier-id">
+                <span class="courtier-name">${esc(c.nom)}</span>
+                <span class="courtier-office">Courtier inscripteur, Immocontact — ${esc(c.bureau)}</span>
+              </span>
+            </button>`).join('')}
+        </div>` : `
+        <p class="dest-empty">Aucun courtier de ce nom à Immocontact. Vérifiez l'orthographe : la demande ne peut partir qu'à un courtier inscrit.</p>`}
     </div>`;
+    })();
 
   return `
     <div class="modal-overlay" id="modal-overlay">
@@ -1770,8 +1829,8 @@ function renderVisitRequestModal() {
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-primary" id="vr-save" style="min-width:220px;" ${m.external && !courtier ? 'disabled' : ''}>Enregistrer</button>
-          ${m.external && !courtier
+          <button class="btn btn-primary" id="vr-save" style="min-width:220px;" ${m.external && !courtierEntry(courtier) ? 'disabled' : ''}>Enregistrer</button>
+          ${m.external && !courtierEntry(courtier)
             ? `<p class="helper-text" style="margin:10px 0 0;">Choisissez le courtier inscripteur : c'est lui qui recevra la demande de visite.</p>`
             : ''}
         </div>
@@ -3252,6 +3311,7 @@ function openVisitRequestForNewProperty(address, prevDestModal) {
     address,
     external: true,
     courtier: '',
+    courtierSearch: '',
     date: state.draft.date,
     from: defaultStart,
     duration: 30,
@@ -3298,8 +3358,27 @@ function bindVisitRequestModalEvents() {
   const backBtn = document.getElementById('vr-back');
   if (backBtn) backBtn.onclick = () => { state.modal = m.prevDestModal; render(); };
 
-  const courtierSelect = document.getElementById('vr-courtier');
-  if (courtierSelect) courtierSelect.onchange = () => { m.courtier = courtierSelect.value; render(); };
+  // La recherche de courtier re-rend le modal à chaque frappe : on rend le focus
+  // et la position du curseur, sinon on ne peut pas taper deux lettres de suite.
+  const courtierSearch = document.getElementById('vr-courtier-search');
+  if (courtierSearch) courtierSearch.oninput = () => {
+    m.courtierSearch = courtierSearch.value;
+    render();
+    setTimeout(() => {
+      const el = document.getElementById('vr-courtier-search');
+      if (el) { el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
+    }, 0);
+  };
+  document.querySelectorAll('[data-pick-courtier]').forEach(el => {
+    el.onclick = () => { m.courtier = el.getAttribute('data-pick-courtier'); m.courtierSearch = ''; render(); };
+  });
+  const courtierClear = document.getElementById('vr-courtier-clear');
+  if (courtierClear) courtierClear.onclick = () => {
+    m.courtier = '';
+    m.courtierSearch = '';
+    render();
+    setTimeout(() => { const el = document.getElementById('vr-courtier-search'); if (el) el.focus(); }, 0);
+  };
 
   const dateInput = document.getElementById('vr-date');
   if (dateInput) dateInput.onchange = () => { m.date = dateInput.value; };
@@ -3321,9 +3400,9 @@ function bindVisitRequestModalEvents() {
 
   const saveBtn = document.getElementById('vr-save');
   if (saveBtn) saveBtn.onclick = () => {
-    // Sans courtier inscripteur, la demande n'a pas de destinataire. Le bouton
-    // est déjà désactivé ; ce garde-fou couvre l'appel direct.
-    if (m.external && !m.courtier) return;
+    // Sans courtier inscrit à Immocontact, la demande n'a pas de destinataire.
+    // Le bouton est déjà désactivé ; ce garde-fou couvre l'appel direct.
+    if (m.external && !courtierEntry(m.courtier)) return;
     // Edit mode: update the existing stop in place; otherwise add a new one.
     const stop = m.editStopId
       ? state.draft.stops.find(s => s.id === m.editStopId)

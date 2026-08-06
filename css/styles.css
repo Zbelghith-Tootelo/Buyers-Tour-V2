@@ -755,14 +755,28 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 .vr-broker-name { margin: 0; font-size: 15px; font-weight: 700; }
 .vr-broker-agency { margin: 2px 0 0; font-size: 13px; color: var(--texte-secondaire); }
 
-/* Hors catalogue, le bloc courtier devient un choix. Il garde l'anatomie du
-   bloc figé — vignette puis identité — pour que l'écran reste le même écran. */
+/* Hors catalogue, le bloc courtier devient une recherche dans l'annuaire. Une
+   fois le courtier choisi, il reprend exactement la forme du bloc figé — même
+   vignette, même identité — et « Changer » garde la sortie ouverte. */
 .vr-broker-pick {
-  display: flex; align-items: flex-end; gap: 12px;
   padding: 6px 0 14px; border-bottom: 1px solid var(--bordures); margin-bottom: 14px;
 }
-.vr-broker-avatar.is-empty { background: var(--neutre-surface); color: var(--texte-secondaire); }
-.vr-broker-avatar.is-empty svg { width: 18px; height: 18px; }
+.vr-broker #vr-courtier-clear { margin-left: auto; align-self: center; }
+
+.courtier-results { margin-top: 10px; border: 1px solid var(--bordures); border-radius: var(--radius-md); overflow: hidden; }
+.courtier-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 10px 12px; background: var(--blanc); border: none; cursor: pointer;
+  font-family: inherit; text-align: left;
+  border-bottom: 1px solid var(--bordures);
+}
+.courtier-row:last-child { border-bottom: none; }
+.courtier-row:hover { background: var(--lumiere-principale); }
+.courtier-row:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: -2px; }
+.courtier-row .vr-broker-avatar { width: 34px; height: 34px; font-size: 13px; }
+.courtier-id { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.courtier-name { font-size: 14.5px; font-weight: 700; color: var(--texte-principal); }
+.courtier-office { font-size: 12.5px; color: var(--texte-secondaire); }
 
 .vr-property { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; }
 .vr-property-address { font-size: 15px; font-weight: 600; }
