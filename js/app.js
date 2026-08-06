@@ -1454,6 +1454,16 @@ function renderBuilderScreen() {
       // fourth icon to the action row: it acts on the thing it changes, and the
       // row is already carrying three buttons.
       const nextSt = STOP_STATUS_CYCLE[(STOP_STATUS_CYCLE.indexOf(st) + 1) % STOP_STATUS_CYCLE.length];
+      // Un compte rendu mis de côté ne se retrouve que si l'arrêt le dit : sans
+      // ça, « Visité » couvre autant celui qui est parti chez le vendeur que
+      // celui qui attend encore, et le courtier n'a rien pour trier après coup.
+      const reportPending = !!(stop.report && !stop.report.sent);
+      // Le séparateur voyage avec l'étiquette : sinon, quand la ligne se casse,
+      // la puce reste seule en fin de ligne.
+      const visitedHtml = !stop.visited ? ''
+        : reportPending
+          ? ` <span class="meta-part"><span class="dot">•</span> <span class="status-report-todo">${icon('star')} Compte rendu à envoyer</span></span>`
+          : ` <span class="meta-part"><span class="dot">•</span> <span class="status-visited">${icon('star')} Visité</span></span>`;
       const statusHtml = !flag('simulateConfirmation') ? statusLabel : `
         <button class="status-sim" data-sim-status="${stop.id}"
           title="Simuler la réponse du courtier inscripteur — état suivant : ${esc(STOP_STATUSES[nextSt].short)}">
@@ -1467,12 +1477,12 @@ function renderBuilderScreen() {
           </div>
           <div class="stop-body">
             <p class="stop-address">${esc(stop.address)}${stop.external ? ` <span class="ext-chip" title="Hors catalogue : la demande part par courriel au courtier inscripteur, sans créer de fiche.">Hors catalogue</span>` : ''}</p>
-            <p class="stop-meta">Heure de visite : ${minutesToLabel(start)} – ${minutesToLabel(start + stop.duration)} <span class="dot">•</span> ${statusHtml}${stop.visited ? ` <span class="dot">•</span> <span class="status-visited">${icon('star')} Visité</span>` : ''}</p>
+            <p class="stop-meta">Heure de visite : ${minutesToLabel(start)} – ${minutesToLabel(start + stop.duration)} <span class="dot">•</span> ${statusHtml}${visitedHtml}</p>
           </div>
           <div class="stop-actions">
             <button class="btn-icon" data-edit-stop="${stop.id}">${icon('pencil')}</button>
             <button class="btn-icon danger" data-remove-stop="${stop.id}">${icon('trash')}</button>
-            <button class="btn-icon toggle-visited ${stop.visited ? 'active' : ''}" data-toggle-visited="${stop.id}" title="${stop.visited ? 'Voir le compte rendu de visite' : 'Faire le compte rendu de visite'}">${icon('star')}</button>
+            <button class="btn-icon toggle-visited ${!stop.visited ? '' : reportPending ? 'todo' : 'active'}" data-toggle-visited="${stop.id}" title="${!stop.visited ? 'Faire le compte rendu de visite' : reportPending ? 'Reprendre le compte rendu et l\'envoyer' : 'Voir le compte rendu de visite'}">${icon('star')}</button>
           </div>
         </div>`;
 
@@ -2434,10 +2444,11 @@ function renderReportScreen() {
 
     <div style="max-width:300px;margin-top:20px;">
       <button class="btn btn-primary btn-block" id="btn-send-report">Envoyer</button>
-      <button class="btn btn-outline btn-block" id="btn-send-report-later" style="margin-top:15px;">Envoyer plus tard ...</button>
+      <button class="btn btn-outline btn-block" id="btn-send-report-later" style="margin-top:15px;">Enregistrer pour plus tard</button>
     </div>
 
-    <p class="helper-text" style="margin-top:20px;">Toutes ces informations seront partagées avec les vendeurs.</p>`;
+    <p class="helper-text" style="margin-top:20px;">Toutes ces informations seront partagées avec les vendeurs.
+      Enregistré pour plus tard, le compte rendu reste dans le tour : vous l'enverrez une fois les visites terminées.</p>`;
 }
 
 function renderEditStopModal() {
@@ -3188,7 +3199,9 @@ function bindReportEvents() {
     state.reportDraft = null;
     state.screen = 'builder';
     render();
-    showToast(sent ? 'Compte rendu envoyé aux vendeurs.' : 'Compte rendu enregistré, à envoyer plus tard.', 'success');
+    showToast(sent
+      ? 'Compte rendu envoyé aux vendeurs.'
+      : 'Compte rendu enregistré. Rouvrez-le depuis l\'arrêt pour l\'envoyer.', 'success');
   };
   const sendBtn = document.getElementById('btn-send-report');
   if (sendBtn) sendBtn.onclick = () => finalizeReport(true);

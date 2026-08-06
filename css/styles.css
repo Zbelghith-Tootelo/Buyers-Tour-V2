@@ -304,6 +304,8 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 
 .btn-icon.toggle-visited.active { background: var(--succes); border-color: var(--succes); color: var(--blanc); }
 .btn-icon.toggle-visited.active:hover { background: var(--succes); opacity: 0.9; }
+.btn-icon.toggle-visited.todo { background: var(--attention); border-color: var(--attention); color: var(--blanc); }
+.btn-icon.toggle-visited.todo:hover { background: var(--attention); opacity: 0.9; }
 
 /* ---------- Forms ---------- */
 
@@ -606,8 +608,16 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 .stop-meta .status-warn { color: #8a5a05; font-weight: 600; }
 .stop-meta .status-danger { color: var(--rouge-principal); font-weight: 600; }
 .stop-meta .status-muted { color: var(--texte-secondaire); font-weight: 600; }
-.stop-meta .status-visited { color: var(--succes); font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
-.stop-meta .status-visited svg { width: 12px; height: 12px; }
+.stop-meta .status-visited { color: var(--succes); font-weight: 600; display: inline-flex; align-items: flex-start; gap: 3px; }
+.stop-meta .status-visited svg { width: 12px; height: 12px; margin-top: 3px; }
+/* Puce + étiquette forment un bloc : ils passent à la ligne ensemble. */
+.stop-meta .meta-part { display: inline-block; }
+/* Compte rendu mis de côté : la visite a bien eu lieu, mais il reste un geste.
+   Ambre plutôt que vert, pour qu'il ne se lise pas comme terminé. */
+/* L'étoile reste sur la première ligne quand l'étiquette se casse en deux : au
+   centre, elle flottait au milieu d'un bloc de texte. */
+.stop-meta .status-report-todo { color: #8a5a05; font-weight: 600; display: inline-flex; align-items: flex-start; gap: 3px; }
+.stop-meta .status-report-todo svg { width: 12px; height: 12px; margin-top: 3px; }
 
 /* Demo control: clicking the status simulates the listing broker's answer. The
    dashed underline marks it as a simulation affordance rather than a real
