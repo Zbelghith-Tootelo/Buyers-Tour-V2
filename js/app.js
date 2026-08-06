@@ -162,15 +162,32 @@ const SUGGESTION_STREETS = [
   'Chemin des Bouleaux, Brossard, QC J4W 2K3',
 ];
 
+// Mots qui ne distinguent pas une rue d'une autre : les garder ferait
+// correspondre « rue des Développeurs » à « Rue des Tilleuls ».
+const ADDRESS_FILLER = ['rue', 'avenue', 'av', 'boulevard', 'boul', 'blvd', 'chemin', 'ch',
+  'place', 'montee', 'croissant', 'des', 'de', 'du', 'la', 'le', 'les', 'saint', 'sainte'];
+
+function normalizeText(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 // Renvoie des adresses proches de la saisie et absentes du catalogue. Sans
 // numéro civique il n'y a rien à proposer : une rue seule n'est pas une adresse.
 function addressSuggestions(q) {
   const num = (q.match(/\d{1,5}/) || [])[0];
   if (!num) return [];
-  const known = new Set(MLS_POOL.map(p => p.address.toLowerCase()));
+  // Ce qui reste après le numéro nomme la rue cherchée. Une proposition qui ne
+  // la contient pas n'est pas une suggestion, c'est du bruit : mieux vaut dire
+  // qu'on n'a rien trouvé et offrir d'ajouter l'adresse. Sans mot distinctif —
+  // « 500 » seul, « 500 rue » — on propose toujours des pistes.
+  const words = normalizeText(q.replace(num, ' '))
+    .split(/[^a-z0-9]+/)
+    .filter(w => w.length > 2 && !ADDRESS_FILLER.includes(w));
+  const known = new Set(MLS_POOL.map(p => normalizeText(p.address)));
   return SUGGESTION_STREETS
+    .filter(street => !words.length || words.some(w => normalizeText(street).includes(w)))
     .map(street => ({ id: 'sug-' + num + '-' + hashStr(street), address: `${num} ${street}` }))
-    .filter(sug => !known.has(sug.address.toLowerCase()))
+    .filter(sug => !known.has(normalizeText(sug.address)))
     .slice(0, 4);
 }
 
@@ -1886,6 +1903,7 @@ function renderDestinationModal() {
     // groupes le disent, plutôt que de laisser croire à une liste vide.
     const suggestions = tab === 'adresse' && q && flag('customAddress') ? addressSuggestions(q) : [];
     const grouped = tab === 'adresse' && flag('customAddress');
+    const nothingFound = !!q && !results.length && !suggestions.length;
     const listHtml = !q ? '' : grouped ? `
       ${results.length ? `
         <p class="result-group">Propriétés Immocontact</p>
@@ -1911,7 +1929,7 @@ function renderDestinationModal() {
         <input type="text" class="input" id="dest-search" placeholder="${placeholder}" value="${esc(state.destModalSearch)}">
         ${icon('search')}
       </div>
-      <div class="info-banner">${icon('info')} <span>Cliquez sur un résultat pour l'ajouter directement au tour.</span></div>
+      ${nothingFound ? '' : `<div class="info-banner">${icon('info')} <span>Cliquez sur un résultat pour l'ajouter directement au tour.</span></div>`}
       <div style="margin-top:10px;">${listHtml}</div>
     `;
   } else if (tab === 'cart') {
