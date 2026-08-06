@@ -11,10 +11,11 @@ permissions:
   id-token: write
 
 # Un seul déploiement à la fois, mais on ne coupe jamais celui qui est en vol :
-# deploy-pages a déjà créé le déploiement Pages quand l'annulation arrive, et il
-# reste alors un déploiement orphelin qui finit en erreur. Pages traitant ses
-# déploiements en série, l'erreur bloque le suivant — une série de pushes
-# rapprochés suffisait à laisser le site en ligne plusieurs versions en retard.
+# deploy-pages crée le déploiement Pages avant qu'une annulation puisse arriver,
+# et il reste alors un déploiement orphelin bloqué en « in progress ». Pages
+# traitant ses déploiements en série, cet orphelin fait échouer tous les
+# suivants avec « due to in progress deployment ». Les runs qui arrivent pendant
+# un déploiement attendent leur tour au lieu de l'interrompre.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -26,12 +27,15 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
+      # Majeures à jour : les précédentes (checkout@v4, configure-pages@v5,
+      # upload-pages-artifact@v3, deploy-pages@v4) tournaient sur Node 20, dont
+      # GitHub a annoncé la fin de support sur ses runners.
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: .
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
