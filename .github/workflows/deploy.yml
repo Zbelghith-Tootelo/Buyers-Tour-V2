@@ -10,9 +10,14 @@ permissions:
   pages: write
   id-token: write
 
+# Un seul déploiement à la fois, mais on ne coupe jamais celui qui est en vol :
+# deploy-pages a déjà créé le déploiement Pages quand l'annulation arrive, et il
+# reste alors un déploiement orphelin qui finit en erreur. Pages traitant ses
+# déploiements en série, l'erreur bloque le suivant — une série de pushes
+# rapprochés suffisait à laisser le site en ligne plusieurs versions en retard.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
