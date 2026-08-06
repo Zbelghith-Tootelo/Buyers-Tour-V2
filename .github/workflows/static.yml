@@ -48,3 +48,9 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # Par défaut l'action interroge GitHub pendant dix minutes avant
+          # d'abandonner. Quand la source de publication n'est pas réglée sur
+          # « GitHub Actions », le déploiement n'aboutit jamais : autant le
+          # constater en trois minutes.
+          timeout: 180000
