@@ -632,9 +632,13 @@ const FEATURE_FLAGS = [
 // dizaine d'interrupteurs à la main avant chaque démo — un clic donne le
 // comportement complet d'une plateforme, les interrupteurs restent disponibles
 // pour explorer les variantes à partir de là.
+// `brand` est la marque telle qu'elle s'écrit sur le logotype, distincte du
+// `label` employé dans les réglages. Les deux logotypes n'ont pas la même
+// largeur : elle est portée ici pour que le bandeau réserve la bonne place
+// avant que le SVG soit chargé.
 const PLATFORMS = [
-  { id: 'immocontact', label: 'ImmoContact', help: 'Adresse libre, sans catalogue MLS ni Panier.' },
-  { id: 'touchbase', label: 'Touchbase', help: 'Catalogue MLS et Panier ; la propriété passe par un courtier.' },
+  { id: 'immocontact', label: 'ImmoContact', brand: 'Immocontact', logo: 'assets/logo-immocontact.svg', logoWidth: 184, help: 'Adresse libre, sans catalogue MLS ni Panier.' },
+  { id: 'touchbase', label: 'Touchbase', brand: 'Touchbase', logo: 'assets/logo-touchbase.svg', logoWidth: 160, help: 'Catalogue MLS et Panier ; la propriété passe par un courtier.' },
 ];
 
 // Chaque preset décrit la plateforme en entier, y compris les comportements pas
@@ -1101,6 +1105,21 @@ function builderTitle() {
   return `Tour du ${formatDateLong(d.date)}`;
 }
 
+// Le logotype suit la plateforme choisie dans les réglages : la démo doit
+// porter la marque du client à qui on la montre. Quand les interrupteurs ont
+// été bougés à la main, aucune plateforme ne correspond — on garde alors la
+// marque par défaut plutôt que de laisser un bandeau sans logo.
+function renderBrand() {
+  const p = PLATFORMS.find(p => p.id === currentPlatform()) || PLATFORMS[0];
+  document.querySelectorAll('[data-brand-logo]').forEach(img => {
+    if (img.getAttribute('src') === p.logo) return;
+    img.setAttribute('src', p.logo);
+    img.setAttribute('alt', p.brand);
+    img.setAttribute('width', p.logoWidth);
+  });
+  document.title = `${p.brand} — Tour de visites`;
+}
+
 function setTopbarTitle(title) {
   document.getElementById('topbar-title').textContent = title;
   const mobileTitle = document.getElementById('mobile-nav-title');
@@ -1109,6 +1128,7 @@ function setTopbarTitle(title) {
 
 function render() {
   const main = document.getElementById('main-content');
+  renderBrand();
   // Un créneau partagé dépend de l'ordre de la liste : on le revalide ici, seul
   // point par lequel passe toute modification du tour.
   normalizeParallel(state.draft);

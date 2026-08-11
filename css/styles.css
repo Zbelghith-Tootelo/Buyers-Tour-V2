@@ -75,7 +75,9 @@ a { color: inherit; text-decoration: none; }
 .sidebar-top { margin-bottom: 19px; }
 
 .logo { display: flex; align-items: center; }
-.logo img { display: block; width: 185px; height: 31px; }
+/* Hauteur fixe, largeur libre : les deux logotypes de marque n'ont pas le même
+   rapport, et une largeur imposée écraserait le plus court. */
+.logo img { display: block; height: 31px; width: auto; }
 
 .sidebar-nav {
   flex: 1;
@@ -1018,7 +1020,7 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
   body:not([data-screen="menu"]) .mobile-header--nav { display: flex; align-items: center; padding-top: 34px; }
 
   .mobile-logo { padding: 0; }
-  .mobile-logo img { display: block; width: 185px; height: 31px; }
+  .mobile-logo img { display: block; height: 31px; width: auto; }
   .mobile-power { background: none; border: none; padding: 4px; cursor: pointer; color: var(--bleu-principal); }
   .mobile-power svg { width: 28px; height: 28px; }
 
