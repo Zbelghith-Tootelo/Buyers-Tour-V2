@@ -831,10 +831,76 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
   padding: 10px; font-size: 14px; font-weight: 500; color: var(--texte-principal); cursor: pointer;
 }
 .option-radio { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--bordures); flex-shrink: 0; position: relative; background: var(--blanc); }
-.option-chip.selected .option-radio { border-color: var(--bleu-secondaire); }
-.option-chip.selected .option-radio::after {
+.option-chip.selected .option-radio, .origin-opt.is-on .option-radio { border-color: var(--bleu-secondaire); }
+.option-chip.selected .option-radio::after, .origin-opt.is-on .option-radio::after {
   content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--bleu-secondaire);
 }
+
+/* ----- Point de départ -----
+   La carte du départ ouvre la chronologie du tour. Elle emprunte la géométrie de
+   .stop-card pour appartenir visiblement à la même liste, mais n'a pas de
+   poignée de glissement : elle ne se réordonne pas. Le disque plein la distingue
+   des arrêts, et c'est le même glyphe que l'épingle de départ sur la carte. */
+.origin-card {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--blanc); border: 1px solid var(--bordures);
+  border-radius: var(--radius-lg); padding: 13px 14px; margin-bottom: 8px;
+}
+.origin-card.is-empty { background: var(--neutre-surface); border-style: dashed; }
+.origin-mark {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bleu-principal); color: var(--blanc);
+}
+.origin-card.is-empty .origin-mark { background: #A9B2C8; }
+.origin-mark svg { width: 17px; height: 17px; }
+.origin-kicker {
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--texte-secondaire); margin: 0 0 3px;
+}
+.origin-address { font-size: 14.5px; font-weight: 700; margin: 0; }
+.origin-card.is-empty .origin-address { font-weight: 500; color: var(--texte-secondaire); }
+.origin-tag {
+  display: inline-block; margin-right: 8px; padding: 2px 7px;
+  background: var(--lumiere-principale); color: var(--bleu-action-dark);
+  border-radius: var(--radius-sm); font-size: 12px; font-weight: 700;
+}
+
+.origin-intro { font-size: 13.5px; line-height: 1.5; color: var(--texte-secondaire); margin: 0 0 16px; }
+.origin-opts { display: flex; flex-direction: column; gap: 8px; }
+.origin-opt {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+  background: var(--blanc); border: 1px solid var(--bordures); border-radius: var(--radius-md);
+  padding: 12px 14px; cursor: pointer; font-family: inherit;
+  /* « Une autre adresse » n'a pas de seconde ligne et retombait à 43 px : sous le
+     minimum tactile de 44 px, on manque la cible au pouce (Fitts, HIG). */
+  min-height: 44px;
+}
+.origin-opt:hover { background: var(--lumiere-principale); }
+.origin-opt:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: 2px; }
+.origin-opt.is-on { border-color: var(--bleu-secondaire); background: var(--bleu-action-10); }
+.origin-opt .option-radio { margin-top: 2px; }
+.origin-opt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.origin-opt-title { font-size: 14px; font-weight: 600; color: var(--texte-principal); }
+.origin-opt-sub { font-size: 12.5px; color: var(--texte-secondaire); }
+
+.origin-custom { padding: 2px 0 4px 25px; }
+.origin-sugs { margin-top: 8px; border: 1px solid var(--bordures); border-radius: var(--radius-md); overflow: hidden; }
+.origin-sug {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; background: var(--blanc); border: none;
+  border-bottom: 1px solid var(--bordures); cursor: pointer;
+  font-family: inherit; font-size: 13.5px; color: var(--texte-principal);
+}
+.origin-sug:last-child { border-bottom: none; }
+.origin-sug:hover { background: var(--lumiere-principale); }
+.origin-sug:focus-visible { outline: 2px solid var(--bleu-secondaire); outline-offset: -2px; }
+.origin-sug svg { width: 15px; height: 15px; color: var(--bleu-secondaire); }
+
+/* Un bouton désactivé sans explication laisse le courtier deviner ce qui
+   manque : la raison se lit à côté du bouton (Nielsen #9). */
+.origin-footer { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.origin-hint { font-size: 12.5px; color: var(--texte-secondaire); flex-basis: 100%; }
 
 .callback-chips { display: flex; flex-wrap: wrap; gap: 10px; }
 .callback-chip {
@@ -902,6 +968,10 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
   border: 2px solid var(--blanc); box-shadow: var(--shadow-base);
 }
 .tour-pin.is-start { background: var(--succes); }
+/* Le départ n'est pas une étape numérotée : il porte le glyphe de lieu, le même
+   que la carte du départ dans la liste. */
+.tour-pin.is-origin { background: var(--bleu-principal-dark); }
+.tour-pin.is-origin svg { width: 15px; height: 15px; color: var(--blanc); }
 
 /* Repère de direction posé sur le tracé, orienté au cap du segment. */
 .route-arrow-wrap { background: none; border: none; }
@@ -999,6 +1069,10 @@ body[data-screen="report"] .topbar-back { display: inline-flex; }
 
 @media (max-width: 768px) {
   body { background: var(--blanc); }
+
+  /* « Modifier » est le seul chemin vers le point de départ au doigt : on le
+     porte au minimum tactile, sans toucher au .btn-inline partagé ailleurs. */
+  .origin-card .btn-inline { min-height: 44px; padding-inline: 14px; }
 
   .sidebar { display: none; }
   .topbar { display: none; }
